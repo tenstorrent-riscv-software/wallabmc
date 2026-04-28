@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2023 Nordic Semiconductor ASA
  *
- * SPDX-FileCopyrightText: © 2025-2026 Tenstorrent AI ULC
+ * SPDX-FileCopyrightText: © 2025-2026 Tenstorrent USA, Inc.
  * SPDX-License-Identifier: Apache-2.0
  */
 

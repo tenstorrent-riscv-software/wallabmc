@@ -1,5 +1,5 @@
 # Copyright (c) 2024, Witekio
-# SPDX-FileCopyrightText: © 2025-2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2025-2026 Tenstorrent USA, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
 OPENSSL=${1:-openssl}

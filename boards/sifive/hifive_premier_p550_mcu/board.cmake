@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: © 2025-2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2025-2026 Tenstorrent USA, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
 board_runner_args(dfu-util "--pid=0483:df11" "--alt=0" "--dfuse")

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: © 2025-2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2025-2026 Tenstorrent USA, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
 list(APPEND BOARD_ROOT ${CMAKE_CURRENT_SOURCE_DIR})

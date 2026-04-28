@@ -2,7 +2,7 @@
  * Copyright (c) 2016 Open-RnD Sp. z o.o.
  * Copyright (c) 2020 Nordic Semiconductor ASA
  *
- * SPDX-FileCopyrightText: © 2025-2026 Tenstorrent AI ULC
+ * SPDX-FileCopyrightText: © 2025-2026 Tenstorrent USA, Inc.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <zephyr/logging/log.h>

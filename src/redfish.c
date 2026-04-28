@@ -7,7 +7,7 @@
  * redfishtool Systems -r 192.168.2.55 -vvv reset ForceOff
  * redfishtool Systems -r 192.168.2.55 -vvv reset PowerCycle
  *
- * SPDX-FileCopyrightText: © 2025-2026 Tenstorrent AI ULC
+ * SPDX-FileCopyrightText: © 2025-2026 Tenstorrent USA, Inc.
  * SPDX-License-Identifier: Apache-2.0
  */
 
