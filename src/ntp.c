@@ -186,4 +186,3 @@ int ntp_init(void)
 
 	return 0;
 }
-

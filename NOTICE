@@ -26,7 +26,7 @@ and are provided as examples for development purposes only.
 
 Third-Party Dependencies
 
-This software depends on and/or includes components from the following open 
+This software depends on and/or includes components from the following open
 source projects. Please refer to their respective licenses:
 
 1. Zephyr RTOS - https://github.com/zephyrproject-rtos/zephyr

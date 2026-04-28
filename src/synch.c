@@ -5,4 +5,3 @@
 #include "synch.h"
 
 K_EVENT_DEFINE(events);
-

@@ -78,4 +78,3 @@ You can debug an application in the usual way.  Here is an example for the
    :board: hifive_premier_p550_mcu
    :maybe-skip-config:
    :goals: debug
-

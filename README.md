@@ -64,7 +64,7 @@ Go to your zephyr build dir:
 ```
 west build --sysbuild -b nucleo_f767zi ~/wallabmc
 ```
-Where `nucleo_f767zi` can be replaced with the boards in [Hardware Support](#hardware-support). 
+Where `nucleo_f767zi` can be replaced with the boards in [Hardware Support](#hardware-support).
 
 See [flashing](#flashing) on how to install
 

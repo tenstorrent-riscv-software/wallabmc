@@ -11,7 +11,7 @@
     jtag {
         // What is a better setting for this?
         compatible = "gpio-leds";
-        
+
         // not connected for now
         jtagtck: jtag_tck {
             gpios = <&gpioe  0 GPIO_ACTIVE_HIGH>;

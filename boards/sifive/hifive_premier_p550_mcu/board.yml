@@ -4,4 +4,3 @@ board:
   vendor: sifive
   socs:
     - name: stm32f407xx
-

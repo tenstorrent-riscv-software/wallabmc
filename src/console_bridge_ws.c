@@ -297,4 +297,3 @@ int console_bridge_ws_init(void)
 
 	return 0;
 }
-
