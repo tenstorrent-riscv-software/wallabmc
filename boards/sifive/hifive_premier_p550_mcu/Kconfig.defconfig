@@ -1,6 +1,6 @@
 # hifive_premier_p550_mcu board configuration
 
-# SPDX-FileCopyrightText: © 2025-2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2025-2026 Tenstorrent USA, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
 if BOARD_HIFIVE_PREMIER_P550_MCU
@@ -17,4 +17,3 @@ config NET_L2_ETHERNET
 endif # NETWORKING
 
 endif # BOARD_HIFIVE_PREMIER_P550_MCU
-

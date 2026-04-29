@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: © 2025-2026 Tenstorrent AI ULC
+ * SPDX-FileCopyrightText: © 2025-2026 Tenstorrent USA, Inc.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -297,4 +297,3 @@ int console_bridge_ws_init(void)
 
 	return 0;
 }
-

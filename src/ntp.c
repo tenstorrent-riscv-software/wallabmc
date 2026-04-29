@@ -3,7 +3,7 @@
  * Copyright (c) 2017 Linaro Limited
  * Copyright (c) 2019 Intel Corporation
  *
- * SPDX-FileCopyrightText: © 2025-2026 Tenstorrent AI ULC
+ * SPDX-FileCopyrightText: © 2025-2026 Tenstorrent USA, Inc.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -186,4 +186,3 @@ int ntp_init(void)
 
 	return 0;
 }
-

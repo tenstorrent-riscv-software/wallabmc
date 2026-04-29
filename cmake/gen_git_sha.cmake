@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: © 2025-2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2025-2026 Tenstorrent USA, Inc.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Generates git_sha.h at build time so the SHA reflects the current commit.

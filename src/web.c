@@ -4,7 +4,7 @@
  * Copyright (c) 2023, Emna Rekik
  * Copyright (c) 2024, Nordic Semiconductor
  *
- * SPDX-FileCopyrightText: © 2025-2026 Tenstorrent AI ULC
+ * SPDX-FileCopyrightText: © 2025-2026 Tenstorrent USA, Inc.
  * SPDX-License-Identifier: Apache-2.0
  */
 
