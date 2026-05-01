@@ -21,8 +21,20 @@ jobs:
           verbose: 'true'
           ignore_config_file: .github/spdx-ignore.yaml
 
+  check-clang-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install clang-format 20.1.8
+        uses: aminya/setup-cpp@v1
+        with:
+          clang-format: 20.1.8
+      - name: Check clang-format
+        run: |
+          find src -name '*.c' -o -name '*.h' | xargs clang-format --dry-run --Werror
+
   build:
-    needs: check-spdx
+    needs: [check-spdx, check-clang-format]
 
     runs-on: ubuntu-latest
     container:
