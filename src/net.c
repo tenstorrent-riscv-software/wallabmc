@@ -7,21 +7,21 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(wallabmc_net, LOG_LEVEL_INF);
 
-#include <zephyr/kernel.h>
-#include <zephyr/linker/sections.h>
 #include <errno.h>
 #include <stdio.h>
+#include <zephyr/kernel.h>
+#include <zephyr/linker/sections.h>
 
-#include <zephyr/net/net_config.h>
-#include <zephyr/net/net_if.h>
-#include <zephyr/net/net_core.h>
-#include <zephyr/net/net_context.h>
-#include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/dns_resolve.h>
+#include <zephyr/net/net_config.h>
+#include <zephyr/net/net_context.h>
+#include <zephyr/net/net_core.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/net_mgmt.h>
 
-#include "net.h"
-#include "dhcp.h"
 #include "config.h"
+#include "dhcp.h"
+#include "net.h"
 #include "ntp.h"
 
 int net_do_set_hostname(const char *hostname)
@@ -111,10 +111,7 @@ int net_do_set_default_ip4_from_config(void)
 	return rc;
 }
 
-int net_start_dhcp4(void)
-{
-	return start_dhcp4();
-}
+int net_start_dhcp4(void) { return start_dhcp4(); }
 
 int net_stop_dhcp4(void)
 {
@@ -129,9 +126,9 @@ int net_stop_dhcp4(void)
 		LOG_ERR("Cannot reset IPv4 address (err=%d)", rc);
 
 #ifdef CONFIG_APP_DNS_RESOLVE
-	static const char *dns_servers[] = { CONFIG_DNS_SERVER1, NULL };
-	rc = dns_resolve_reconfigure(dns_resolve_get_default(), dns_servers,
-					NULL, DNS_SOURCE_MANUAL);
+	static const char *dns_servers[] = {CONFIG_DNS_SERVER1, NULL};
+	rc = dns_resolve_reconfigure(dns_resolve_get_default(), dns_servers, NULL,
+				     DNS_SOURCE_MANUAL);
 	if (rc)
 		LOG_ERR("Cannot reset DNS resolver (err=%d)", rc);
 #endif

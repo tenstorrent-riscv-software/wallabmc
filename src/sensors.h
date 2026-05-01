@@ -10,10 +10,7 @@
 #ifdef CONFIG_APP_SENSORS
 int read_die_temperature(struct sensor_value *val);
 #else
-static inline int read_die_temperature(struct sensor_value *val)
-{
-	return -ENODEV;
-}
+static inline int read_die_temperature(struct sensor_value *val) { return -ENODEV; }
 #endif
 
 #endif

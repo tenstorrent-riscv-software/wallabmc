@@ -6,20 +6,20 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(wallabmc_config, LOG_LEVEL_INF);
 
-#include <zephyr/shell/shell.h>
-#include <stdlib.h>
 #include <ctype.h>
-#include <zephyr/sys/util.h>
+#include <stdlib.h>
 #include <zephyr/kernel.h>
+#include <zephyr/shell/shell.h>
+#include <zephyr/sys/util.h>
 
 #include <zephyr/net/hostname.h>
 #include <zephyr/posix/arpa/inet.h> /* inet_ntop */
 
 #include "config.h"
+#include "fs.h"
 #include "main.h"
 #include "net.h"
 #include "ntp.h"
-#include "fs.h"
 
 #define MAX_HOSTNAME_LEN 20
 
@@ -31,16 +31,17 @@ LOG_MODULE_REGISTER(wallabmc_config, LOG_LEVEL_INF);
 #define CFG_CURRENT_VERSION 3
 
 enum config_id {
-	CFG_VERSION = 1,			/* uint8_t */
-	CFG_BMC_ADMIN_PASSWORD = 2,		/* C string */
-	CFG_BMC_HOSTNAME = 3,		/* C string */
-	CFG_BMC_DEFAULT_IP4 = 4,		/* uint32_t */
-	CFG_BMC_DEFAULT_IP4_NM = 5,		/* uint32_t */
-	CFG_BMC_DEFAULT_IP4_GW = 6,		/* uint32_t */
-	CFG_BMC_USE_DHCP4 = 7,		/* uint8_t */
-	CFG_BMC_USE_NTP = 8,			/* uint8_t */
-	CFG_BMC_NTP_SERVER = 9,		/* C string */
-	CFG_HOST_AUTO_POWERON = 10,		/* uint8_t */
+	CFG_VERSION = 1,	    /* uint8_t */
+	CFG_BMC_ADMIN_PASSWORD = 2, /* C string */
+	CFG_BMC_HOSTNAME = 3,	    /* C string */
+	CFG_BMC_DEFAULT_IP4 = 4,    /* uint32_t */
+	CFG_BMC_DEFAULT_IP4_NM = 5, /* uint32_t */
+	CFG_BMC_DEFAULT_IP4_GW = 6, /* uint32_t */
+	CFG_BMC_USE_DHCP4 = 7,	    /* uint8_t */
+	CFG_BMC_USE_NTP = 8,	    /* uint8_t */
+	CFG_BMC_NTP_SERVER = 9,	    /* C string */
+	CFG_HOST_AUTO_POWERON = 10, /* uint8_t */
+
 	/*
 	 * Add field IDs in increasing order and do not reuse deprecated
 	 * ones. Do not change meaning but add new and deprecate old.
@@ -103,75 +104,38 @@ static ssize_t __config_write(uint16_t id, const void *buf, size_t size)
 	return -ENODEV;
 }
 
-#define config_read(id, var)				\
-({							\
-	__config_read(id, &var, sizeof(var));		\
-})
+#define config_read(id, var) ({ __config_read(id, &var, sizeof(var)); })
 
-#define config_read_str(id, var)			\
-({							\
-	ssize_t rc;					\
-	rc = __config_read(id, var, sizeof(var) - 1);	\
-	if (rc >= 0)					\
-		var[rc] = '\0';				\
-	rc;						\
-})
+#define config_read_str(id, var)                                                                   \
+	({                                                                                         \
+		ssize_t rc;                                                                        \
+		rc = __config_read(id, var, sizeof(var) - 1);                                      \
+		if (rc >= 0)                                                                       \
+			var[rc] = '\0';                                                            \
+		rc;                                                                                \
+	})
 
-#define config_write(id, var)				\
-({							\
-	__config_write(id, &var, sizeof(var));		\
-})
+#define config_write(id, var) ({ __config_write(id, &var, sizeof(var)); })
 
-#define config_write_str(id, var)			\
-({							\
-	__config_write(id, var, strlen(var));		\
-})
+#define config_write_str(id, var) ({ __config_write(id, var, strlen(var)); })
 
+const char *config_bmc_hostname(void) { return config_data.bmc_hostname; }
 
-const char *config_bmc_hostname(void)
-{
-	return config_data.bmc_hostname;
-}
+uint32_t config_bmc_default_ip4(void) { return config_data.bmc_default_ip4; }
 
-uint32_t config_bmc_default_ip4(void)
-{
-	return config_data.bmc_default_ip4;
-}
+uint32_t config_bmc_default_ip4_nm(void) { return config_data.bmc_default_ip4_nm; }
 
-uint32_t config_bmc_default_ip4_nm(void)
-{
-	return config_data.bmc_default_ip4_nm;
-}
+uint32_t config_bmc_default_ip4_gw(void) { return config_data.bmc_default_ip4_gw; }
 
-uint32_t config_bmc_default_ip4_gw(void)
-{
-	return config_data.bmc_default_ip4_gw;
-}
+bool config_bmc_use_dhcp4(void) { return config_data.bmc_use_dhcp4; }
 
-bool config_bmc_use_dhcp4(void)
-{
-	return config_data.bmc_use_dhcp4;
-}
+bool config_host_auto_poweron(void) { return config_data.host_auto_poweron; }
 
-bool config_host_auto_poweron(void)
-{
-	return config_data.host_auto_poweron;
-}
+const char *config_bmc_admin_password(void) { return config_data.bmc_admin_password; }
 
-const char *config_bmc_admin_password(void)
-{
-	return config_data.bmc_admin_password;
-}
+bool config_bmc_use_ntp(void) { return config_data.bmc_use_ntp; }
 
-bool config_bmc_use_ntp(void)
-{
-	return config_data.bmc_use_ntp;
-}
-
-const char *config_bmc_ntp_server(void)
-{
-	return config_data.bmc_ntp_server;
-}
+const char *config_bmc_ntp_server(void) { return config_data.bmc_ntp_server; }
 
 #if defined(CONFIG_APP_HTTPS_PSK)
 /*
@@ -180,7 +144,9 @@ const char *config_bmc_ntp_server(void)
  */
 bool config_bmc_https_psk(const char **psk, int *psk_len)
 {
-	static const char p[] = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, };
+	static const char p[] = {
+		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+	};
 
 	*psk = p;
 	*psk_len = sizeof(p);
@@ -206,8 +172,8 @@ int config_bmc_hostname_set(const char *hostname)
 	return 0;
 }
 
-#define CMD_HELP_BMC_HOSTNAME			\
-	"Configure BMC hostname\n"		\
+#define CMD_HELP_BMC_HOSTNAME                                                                      \
+	"Configure BMC hostname\n"                                                                 \
 	"Usage: bmc hostname <hostname>"
 
 static int cmd_config_bmc_hostname(const struct shell *sh, size_t argc, char **argv)
@@ -347,8 +313,8 @@ int config_bmc_default_ip4_gw_set(const char *str)
 	return 0;
 }
 
-#define CMD_HELP_BMC_DEFAULT_IP4		\
-	"Configure BMC default IPv4 address\n"	\
+#define CMD_HELP_BMC_DEFAULT_IP4                                                                   \
+	"Configure BMC default IPv4 address\n"                                                     \
 	"Usage: bmc ipv4_address <IPv4 address>"
 
 static int cmd_config_bmc_default_ip4(const struct shell *sh, size_t argc, char **argv)
@@ -373,8 +339,8 @@ static int cmd_config_bmc_default_ip4(const struct shell *sh, size_t argc, char 
 	return 0;
 }
 
-#define CMD_HELP_BMC_DEFAULT_IP4_NM			\
-	"Configure BMC default IPv4 subnet mask\n"	\
+#define CMD_HELP_BMC_DEFAULT_IP4_NM                                                                \
+	"Configure BMC default IPv4 subnet mask\n"                                                 \
 	"Usage: bmc ipv4_subnet_mask <IPv4 address>"
 
 static int cmd_config_bmc_default_ip4_nm(const struct shell *sh, size_t argc, char **argv)
@@ -399,8 +365,8 @@ static int cmd_config_bmc_default_ip4_nm(const struct shell *sh, size_t argc, ch
 	return 0;
 }
 
-#define CMD_HELP_BMC_DEFAULT_IP4_GW			\
-	"Configure BMC default IPv4 gateway\n"	\
+#define CMD_HELP_BMC_DEFAULT_IP4_GW                                                                \
+	"Configure BMC default IPv4 gateway\n"                                                     \
 	"Usage: bmc ipv4_gateway <IPv4 address>"
 
 static int cmd_config_bmc_default_ip4_gw(const struct shell *sh, size_t argc, char **argv)
@@ -450,8 +416,8 @@ int config_bmc_use_dhcp4_set(bool use)
 	return 0;
 }
 
-#define CMD_HELP_BMC_DHCP4			\
-	"BMC DHCP4 enabled\n"			\
+#define CMD_HELP_BMC_DHCP4                                                                         \
+	"BMC DHCP4 enabled\n"                                                                      \
 	"Usage: bmc dhcpv4 <enable|disable>"
 
 static int cmd_config_bmc_dhcp4(const struct shell *sh, size_t argc, char **argv)
@@ -502,8 +468,8 @@ int config_bmc_use_ntp_set(bool use)
 	return 0;
 }
 
-#define CMD_HELP_BMC_NTP				\
-	"BMC NTP time sync enabled\n"			\
+#define CMD_HELP_BMC_NTP                                                                           \
+	"BMC NTP time sync enabled\n"                                                              \
 	"Usage: bmc ntp <enable|disable>"
 
 static int cmd_config_bmc_ntp(const struct shell *sh, size_t argc, char **argv)
@@ -554,8 +520,8 @@ int config_bmc_ntp_server_set(const char *ntp_server)
 	return 0;
 }
 
-#define CMD_HELP_BMC_NTP_SERVER				\
-	"BMC NTP server address\n"			\
+#define CMD_HELP_BMC_NTP_SERVER                                                                    \
+	"BMC NTP server address\n"                                                                 \
 	"Usage: bmc ntp_server <server address>"
 
 static int cmd_config_bmc_ntp_server(const struct shell *sh, size_t argc, char **argv)
@@ -580,7 +546,6 @@ static int cmd_config_bmc_ntp_server(const struct shell *sh, size_t argc, char *
 	return 0;
 }
 
-
 int config_bmc_password_set(const char *password)
 {
 	int rc;
@@ -600,8 +565,8 @@ int config_bmc_password_set(const char *password)
 	return 0;
 }
 
-#define CMD_HELP_BMC_ADMIN_PASSWORD		\
-	"BMC admin password\n"			\
+#define CMD_HELP_BMC_ADMIN_PASSWORD                                                                \
+	"BMC admin password\n"                                                                     \
 	"Usage: bmc password <pw>"
 
 static int cmd_config_bmc_password(const struct shell *sh, size_t argc, char **argv)
@@ -626,17 +591,20 @@ static int cmd_config_bmc_password(const struct shell *sh, size_t argc, char **a
 	return 0;
 }
 
-SHELL_STATIC_SUBCMD_SET_CREATE(sub_config_bmc_cmds,
-	SHELL_CMD_ARG(password,		NULL, CMD_HELP_BMC_ADMIN_PASSWORD, cmd_config_bmc_password, 2, 0),
-	SHELL_CMD_ARG(hostname,		NULL, CMD_HELP_BMC_HOSTNAME, cmd_config_bmc_hostname, 2, 0),
-	SHELL_CMD_ARG(ipv4_address,	NULL, CMD_HELP_BMC_DEFAULT_IP4, cmd_config_bmc_default_ip4, 2, 0),
-	SHELL_CMD_ARG(ipv4_subnet_mask,	NULL, CMD_HELP_BMC_DEFAULT_IP4_NM, cmd_config_bmc_default_ip4_nm, 2, 0),
-	SHELL_CMD_ARG(ipv4_gateway,	NULL, CMD_HELP_BMC_DEFAULT_IP4_GW, cmd_config_bmc_default_ip4_gw, 2, 0),
-	SHELL_CMD_ARG(dhcpv4,		NULL, CMD_HELP_BMC_DHCP4, cmd_config_bmc_dhcp4, 2, 0),
-	SHELL_CMD_ARG(ntp,		NULL, CMD_HELP_BMC_NTP, cmd_config_bmc_ntp, 2, 0),
-	SHELL_CMD_ARG(ntp_server,	NULL, CMD_HELP_BMC_NTP_SERVER, cmd_config_bmc_ntp_server, 2, 0),
-	SHELL_SUBCMD_SET_END
-);
+SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_config_bmc_cmds,
+	SHELL_CMD_ARG(password, NULL, CMD_HELP_BMC_ADMIN_PASSWORD, cmd_config_bmc_password, 2, 0),
+	SHELL_CMD_ARG(hostname, NULL, CMD_HELP_BMC_HOSTNAME, cmd_config_bmc_hostname, 2, 0),
+	SHELL_CMD_ARG(ipv4_address, NULL, CMD_HELP_BMC_DEFAULT_IP4, cmd_config_bmc_default_ip4, 2,
+		      0),
+	SHELL_CMD_ARG(ipv4_subnet_mask, NULL, CMD_HELP_BMC_DEFAULT_IP4_NM,
+		      cmd_config_bmc_default_ip4_nm, 2, 0),
+	SHELL_CMD_ARG(ipv4_gateway, NULL, CMD_HELP_BMC_DEFAULT_IP4_GW,
+		      cmd_config_bmc_default_ip4_gw, 2, 0),
+	SHELL_CMD_ARG(dhcpv4, NULL, CMD_HELP_BMC_DHCP4, cmd_config_bmc_dhcp4, 2, 0),
+	SHELL_CMD_ARG(ntp, NULL, CMD_HELP_BMC_NTP, cmd_config_bmc_ntp, 2, 0),
+	SHELL_CMD_ARG(ntp_server, NULL, CMD_HELP_BMC_NTP_SERVER, cmd_config_bmc_ntp_server, 2, 0),
+	SHELL_SUBCMD_SET_END);
 
 int config_host_auto_poweron_set(bool on)
 {
@@ -661,8 +629,8 @@ int config_host_auto_poweron_set(bool on)
 	return 0;
 }
 
-#define CMD_HELP_HOST_AUTO_POWERON		\
-	"Host auto poweron enabled\n"		\
+#define CMD_HELP_HOST_AUTO_POWERON                                                                 \
+	"Host auto poweron enabled\n"                                                              \
 	"Usage: host auto_poweron <enable|disable>"
 
 static int cmd_config_host_auto_poweron(const struct shell *sh, size_t argc, char **argv)
@@ -689,9 +657,9 @@ static int cmd_config_host_auto_poweron(const struct shell *sh, size_t argc, cha
 }
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_config_host_cmds,
-	SHELL_CMD_ARG(auto_poweron,	NULL, CMD_HELP_HOST_AUTO_POWERON, cmd_config_host_auto_poweron, 2, 0),
-	SHELL_SUBCMD_SET_END
-);
+			       SHELL_CMD_ARG(auto_poweron, NULL, CMD_HELP_HOST_AUTO_POWERON,
+					     cmd_config_host_auto_poweron, 2, 0),
+			       SHELL_SUBCMD_SET_END);
 
 static int cmd_config_show(const struct shell *sh, size_t argc, char **argv)
 {
@@ -699,13 +667,14 @@ static int cmd_config_show(const struct shell *sh, size_t argc, char **argv)
 	ARG_UNUSED(argv);
 
 	shell_print(sh, "--- Configuration ---");
-	shell_print(sh, "BMC hostname: %s",	config_data.bmc_hostname);
+	shell_print(sh, "BMC hostname: %s", config_data.bmc_hostname);
 	shell_print(sh, "BMC default IPv4 address: %s", ip4_atos(config_data.bmc_default_ip4));
-	shell_print(sh, "BMC default IPv4 subnet mask: %s", ip4_atos(config_data.bmc_default_ip4_nm));
+	shell_print(sh, "BMC default IPv4 subnet mask: %s",
+		    ip4_atos(config_data.bmc_default_ip4_nm));
 	shell_print(sh, "BMC default IPv4 gateway: %s", ip4_atos(config_data.bmc_default_ip4_gw));
-	shell_print(sh, "BMC use DHCPv4: %d",	config_data.bmc_use_dhcp4);
-	shell_print(sh, "BMC use NTP: %d",	config_data.bmc_use_ntp);
-	shell_print(sh, "BMC NTP server: %s",	config_data.bmc_ntp_server);
+	shell_print(sh, "BMC use DHCPv4: %d", config_data.bmc_use_dhcp4);
+	shell_print(sh, "BMC use NTP: %d", config_data.bmc_use_ntp);
+	shell_print(sh, "BMC NTP server: %s", config_data.bmc_ntp_server);
 	shell_print(sh, "Host auto poweron: %d", config_data.host_auto_poweron);
 	shell_print(sh, "---------------------");
 
@@ -735,20 +704,17 @@ static int cmd_config_clear(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
-SHELL_STATIC_SUBCMD_SET_CREATE(sub_config_cmds,
-	SHELL_CMD(show,	NULL, "Show configuration.", &cmd_config_show),
-	SHELL_CMD(bmc,	&sub_config_bmc_cmds, "BMC configuration commands.", NULL),
-	SHELL_CMD(host,	&sub_config_host_cmds, "Host configuration commands.", NULL),
-	SHELL_CMD(clear_and_reboot, NULL, "Clear configuration and reboot system.", &cmd_config_clear),
-	SHELL_SUBCMD_SET_END
-);
+SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_config_cmds, SHELL_CMD(show, NULL, "Show configuration.", &cmd_config_show),
+	SHELL_CMD(bmc, &sub_config_bmc_cmds, "BMC configuration commands.", NULL),
+	SHELL_CMD(host, &sub_config_host_cmds, "Host configuration commands.", NULL),
+	SHELL_CMD(clear_and_reboot, NULL, "Clear configuration and reboot system.",
+		  &cmd_config_clear),
+	SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(config, &sub_config_cmds, "Configuration commands", NULL);
 
-int config_clear(void)
-{
-	return fs_clear();
-}
+int config_clear(void) { return fs_clear(); }
 
 int config_init(void)
 {
@@ -768,7 +734,8 @@ int config_init(void)
 			config_data.version = CFG_CURRENT_VERSION;
 			rc = config_write(CFG_VERSION, config_data.version);
 		} else if (config_data.version != CFG_CURRENT_VERSION) {
-			LOG_WRN("Config version unknown (version=%d), creating new config", config_data.version);
+			LOG_WRN("Config version unknown (version=%d), creating new config",
+				config_data.version);
 			rc = config_clear();
 			if (rc == 0) {
 				config_data.version = CFG_CURRENT_VERSION;
@@ -794,14 +761,16 @@ int config_init(void)
 	 */
 	rc = config_read_str(CFG_BMC_ADMIN_PASSWORD, config_data.bmc_admin_password);
 	if (rc < 0) {
-		strlcpy(config_data.bmc_admin_password, CONFIG_DEFAULT_ADMIN_PASSWORD, sizeof(config_data.bmc_admin_password));
+		strlcpy(config_data.bmc_admin_password, CONFIG_DEFAULT_ADMIN_PASSWORD,
+			sizeof(config_data.bmc_admin_password));
 		config_write_str(CFG_BMC_ADMIN_PASSWORD, config_data.bmc_admin_password);
 	}
 
 	rc = config_read_str(CFG_BMC_HOSTNAME, config_data.bmc_hostname);
 	if (rc < 0) {
 		/* Default to CONFIG_NET_HOSTNAME, which net_hostname_get() will return */
-		strlcpy(config_data.bmc_hostname, net_hostname_get(), sizeof(config_data.bmc_hostname));
+		strlcpy(config_data.bmc_hostname, net_hostname_get(),
+			sizeof(config_data.bmc_hostname));
 		config_write_str(CFG_BMC_HOSTNAME, config_data.bmc_hostname);
 	}
 
@@ -837,7 +806,8 @@ int config_init(void)
 
 	rc = config_read_str(CFG_BMC_NTP_SERVER, config_data.bmc_ntp_server);
 	if (rc < 0) {
-		strlcpy(config_data.bmc_ntp_server, "pool.ntp.org", sizeof(config_data.bmc_ntp_server));
+		strlcpy(config_data.bmc_ntp_server, "pool.ntp.org",
+			sizeof(config_data.bmc_ntp_server));
 		config_write_str(CFG_BMC_NTP_SERVER, config_data.bmc_ntp_server);
 	}
 

@@ -8,31 +8,28 @@
 LOG_MODULE_REGISTER(wallabmc, LOG_LEVEL_INF);
 
 #include <zephyr/kernel.h>
-#include <zephyr/sys/reboot.h>
-#include <zephyr/sys/poweroff.h>
 #include <zephyr/shell/shell.h>
+#include <zephyr/sys/poweroff.h>
+#include <zephyr/sys/reboot.h>
 
-#include "fs.h"
-#include "config.h"
 #include "button.h"
-#include "net.h"
+#include "config.h"
+#include "console_bridge.h"
+#include "console_bridge_ws.h"
+#include "console_logger.h"
+#include "fs.h"
+#include "git_sha.h"
 #include "http.h"
+#include "jtag.h"
+#include "net.h"
 #include "power.h"
 #include "rtc.h"
 #include "sensors.h"
-#include "jtag.h"
-#include "console_logger.h"
-#include "console_bridge.h"
-#include "console_bridge_ws.h"
 #include "vpd.h"
-#include "git_sha.h"
 
 static bool boot_finished = false;
 
-bool is_boot_finished(void)
-{
-	return boot_finished;
-}
+bool is_boot_finished(void) { return boot_finished; }
 
 static void print_banner(void)
 {
@@ -53,12 +50,9 @@ static void print_banner(void)
 	LOG_INF("Zephyr OS build: %s", BANNER_VERSION);
 #if defined(CONFIG_REDFISH)
 	LOG_INF("Board: %s", CONFIG_REDFISH_SYSTEM_PRODUCT_NAME);
-	LOG_INF("System: %s %s (CPU: %s x%d, Memory: %d GiB)",
-		CONFIG_REDFISH_SYSTEM_MANUFACTURER,
-		CONFIG_REDFISH_SYSTEM_MODEL,
-		CONFIG_REDFISH_SYSTEM_PROCESSOR_MODEL,
-		CONFIG_REDFISH_SYSTEM_PROCESSOR_COUNT,
-		CONFIG_REDFISH_SYSTEM_MEMORY_GIB);
+	LOG_INF("System: %s %s (CPU: %s x%d, Memory: %d GiB)", CONFIG_REDFISH_SYSTEM_MANUFACTURER,
+		CONFIG_REDFISH_SYSTEM_MODEL, CONFIG_REDFISH_SYSTEM_PROCESSOR_MODEL,
+		CONFIG_REDFISH_SYSTEM_PROCESSOR_COUNT, CONFIG_REDFISH_SYSTEM_MEMORY_GIB);
 #endif
 }
 
@@ -79,7 +73,8 @@ FUNC_NORETURN int bmc_reboot(void)
 	sys_reboot(SYS_REBOOT_WARM);
 	sys_reboot(SYS_REBOOT_COLD);
 	k_panic();
-	for (;;);
+	for (;;)
+		;
 }
 
 static FUNC_NORETURN int bmc_poweroff(void)
@@ -95,7 +90,8 @@ static FUNC_NORETURN int bmc_poweroff(void)
 	sys_poweroff();
 	k_panic();
 #endif
-	for (;;);
+	for (;;)
+		;
 }
 
 static int cmd_bmc_reboot(const struct shell *sh, size_t argc, char **argv)
@@ -114,11 +110,9 @@ static int cmd_bmc_poweroff(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
-SHELL_STATIC_SUBCMD_SET_CREATE(sub_bmc_cmds,
-	SHELL_CMD(reboot,	NULL, "Reboot BMC.", cmd_bmc_reboot),
-	SHELL_CMD(poweroff,	NULL, "Power off BMC.", cmd_bmc_poweroff),
-	SHELL_SUBCMD_SET_END
-);
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_bmc_cmds, SHELL_CMD(reboot, NULL, "Reboot BMC.", cmd_bmc_reboot),
+			       SHELL_CMD(poweroff, NULL, "Power off BMC.", cmd_bmc_poweroff),
+			       SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(bmc, &sub_bmc_cmds, "BMC system commands", NULL);
 
@@ -128,33 +122,29 @@ static int cmd_hop(const struct shell *sh, size_t argc, char **argv)
 	ARG_UNUSED(argv);
 
 	/* Wallaby on ground */
-	const char *wallaby_ground[] = {
-		"",
-		"",
-		"",
-		"             /)",
-		"          <.' \\_",
-		"            / ( )\\",
-		"            __|/  \\__",
-		NULL
-	};
+	const char *wallaby_ground[] = {"",
+					"",
+					"",
+					"             /)",
+					"          <.' \\_",
+					"            / ( )\\",
+					"            __|/  \\__",
+					NULL};
 
 	/* Wallaby in air (hopped up) */
-	const char *wallaby_air[] = {
-		"             /)",
-		"          <.' \\_",
-		"            / ( )\\",
-		"            |/  \\",
-		"            /     \\",
-		"",
-		"",
-		NULL
-	};
+	const char *wallaby_air[] = {"             /)",
+				     "          <.' \\_",
+				     "            / ( )\\",
+				     "            |/  \\",
+				     "            /     \\",
+				     "",
+				     "",
+				     NULL};
 
-	int pos;  /* Horizontal position */
+	int pos; /* Horizontal position */
 	int i, j;
-	int max_pos = 60;  /* Maximum horizontal position */
-	int num_hops = 4;  /* Number of complete hops */
+	int max_pos = 60; /* Maximum horizontal position */
+	int num_hops = 4; /* Number of complete hops */
 	bool in_air = false;
 
 	shell_print(sh, "\n");
@@ -176,11 +166,13 @@ static int cmd_hop(const struct shell *sh, size_t argc, char **argv)
 
 			/* Print the frame with horizontal offset */
 			for (j = 0; current_frame[j] != NULL; j++) {
-					shell_print(sh, "%*s%s", pos, "", current_frame[j]);
+				shell_print(sh, "%*s%s", pos, "", current_frame[j]);
 			}
-			shell_print(sh, "----------------------------------------------------------------------------------");
+			shell_print(
+				sh,
+				"----------------------------------------------------------------------------------");
 
-			k_msleep(120);  /* Animation speed */
+			k_msleep(120); /* Animation speed */
 		}
 	}
 

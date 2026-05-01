@@ -7,22 +7,22 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(host_console_ws, LOG_LEVEL_INF);
 
-#include <zephyr/posix/fcntl.h>
-#include <zephyr/drivers/uart.h>
+#include <errno.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/uart.h>
+#include <zephyr/net/http/server.h>
+#include <zephyr/net/http/service.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/socket_service.h>
-#include <zephyr/net/http/service.h>
-#include <zephyr/net/http/server.h>
 #include <zephyr/net/websocket.h>
-#include <errno.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <string.h>
+#include <zephyr/posix/fcntl.h>
 
 #include "console_logger.h"
-#include "synch.h"
 #include "http.h"
+#include "synch.h"
 
 /*
  * Receive buffer size.
@@ -31,8 +31,8 @@ LOG_MODULE_REGISTER(host_console_ws, LOG_LEVEL_INF);
 #define WS_RX_BUF_SIZE 32
 
 struct host_websocket {
-        /** Array for sockets used by the websocket service. */
-        struct zsock_pollfd fds[1];
+	/** Array for sockets used by the websocket service. */
+	struct zsock_pollfd fds[1];
 	bool new_client;
 };
 
@@ -68,7 +68,8 @@ static ssize_t ws_send(struct host_websocket *ws, const void *buf, size_t size, 
 		 * closed.
 		 */
 		ret = websocket_send_msg(ws->fds[0].fd, (uint8_t *)buf + copied, size - copied,
-					 WEBSOCKET_OPCODE_DATA_BINARY, false, true, block ? SYS_FOREVER_MS : 0);
+					 WEBSOCKET_OPCODE_DATA_BINARY, false, true,
+					 block ? SYS_FOREVER_MS : 0);
 		if (ret < 0) {
 			if (errno == EAGAIN && !block)
 				return copied;
@@ -93,8 +94,8 @@ static ssize_t ws_recv(struct host_websocket *ws, void *buf, size_t size, bool b
 	uint32_t message_type;
 	uint64_t remaining;
 
-	ret = websocket_recv_msg(ws->fds[0].fd, buf, size,
-				&message_type, &remaining, block ? SYS_FOREVER_MS : 0);
+	ret = websocket_recv_msg(ws->fds[0].fd, buf, size, &message_type, &remaining,
+				 block ? SYS_FOREVER_MS : 0);
 	if (ret < 0) {
 		LOG_DBG("Websocket client error %d", ret);
 		if (errno == EAGAIN && !block)
@@ -140,16 +141,14 @@ static void socket_send_thread(void *a, void *b, void *c)
 		if (ret < 0)
 			continue;
 		if (ret == 0) {
-			k_event_wait_safe(&events,
-					EVENT_WEBSOCKET_CLIENT |
-					EVENT_CONSOLE_LOG_DATA,
-					false, K_FOREVER);
+			k_event_wait_safe(&events, EVENT_WEBSOCKET_CLIENT | EVENT_CONSOLE_LOG_DATA,
+					  false, K_FOREVER);
 			continue;
 		}
 
 		nr = ret;
 		copied = 0;
-again:
+	again:
 		if (ws->fds[0].fd == -1)
 			continue;
 
@@ -179,10 +178,9 @@ static void ws_server_cb(struct net_socket_service_event *evt)
 
 	ws = (struct host_websocket *)evt->user_data;
 
-	if ((evt->event.revents & ZSOCK_POLLERR) ||
-	    (evt->event.revents & ZSOCK_POLLNVAL)) {
-		(void)zsock_getsockopt(evt->event.fd, ZSOCK_SOL_SOCKET,
-				       ZSOCK_SO_ERROR, &sock_error, &optlen);
+	if ((evt->event.revents & ZSOCK_POLLERR) || (evt->event.revents & ZSOCK_POLLNVAL)) {
+		(void)zsock_getsockopt(evt->event.fd, ZSOCK_SOL_SOCKET, ZSOCK_SO_ERROR, &sock_error,
+				       &optlen);
 		LOG_ERR("Websocket socket %d error (%d)", evt->event.fd, sock_error);
 
 		if (evt->event.fd == ws->fds[0].fd) {
@@ -232,8 +230,8 @@ static int console_ws_http_cb(int ws_socket, struct http_request_ctx *request_ct
 	ctx->fds[0].events = ZSOCK_POLLIN;
 	ctx->new_client = true;
 
-	ret = net_socket_service_register(&host_console_ws_server, ctx->fds,
-					  ARRAY_SIZE(ctx->fds), ctx);
+	ret = net_socket_service_register(&host_console_ws_server, ctx->fds, ARRAY_SIZE(ctx->fds),
+					  ctx);
 	if (ret < 0) {
 		LOG_ERR("Failed to register socket service, %d", ret);
 		goto error;
@@ -262,22 +260,23 @@ error:
 static uint8_t ws_recv_buf_console_service[256];
 
 struct http_resource_detail_websocket ws_res_detail_console_service = {
-	.common = {
-		.type = HTTP_RESOURCE_TYPE_WEBSOCKET,
+	.common =
+		{
+			.type = HTTP_RESOURCE_TYPE_WEBSOCKET,
 
-		/* We need HTTP/1.1 GET method for upgrading */
-		.bitmask_of_supported_http_methods = BIT(HTTP_GET),
-	},
+			/* We need HTTP/1.1 GET method for upgrading */
+			.bitmask_of_supported_http_methods = BIT(HTTP_GET),
+		},
 	.cb = console_ws_http_cb,
 	.data_buffer = ws_recv_buf_console_service,
 	.data_buffer_len = sizeof(ws_recv_buf_console_service),
 	.user_data = &host_websocket,
 };
-HTTP_RESOURCE_DEFINE(host_console_ws_http, http_service,
-		     "/console/host", &ws_res_detail_console_service);
+HTTP_RESOURCE_DEFINE(host_console_ws_http, http_service, "/console/host",
+		     &ws_res_detail_console_service);
 #if defined(CONFIG_APP_HTTPS)
-HTTP_RESOURCE_DEFINE(host_console_ws_https, https_service,
-		     "/console/host", &ws_res_detail_console_service);
+HTTP_RESOURCE_DEFINE(host_console_ws_https, https_service, "/console/host",
+		     &ws_res_detail_console_service);
 #endif
 
 int console_bridge_ws_init(void)
@@ -287,11 +286,9 @@ int console_bridge_ws_init(void)
 	memset(&host_websocket, 0, sizeof(host_websocket));
 	host_websocket.fds[0].fd = -1;
 
-	k_thread_create(&socket_send_thread_data, socket_send_thread_stack_area,
-			STACK_SIZE,
-			socket_send_thread,
-			NULL, NULL, NULL,
-			CONFIG_CONSOLE_BRIDGE_WS_PRIORITY, 0, K_NO_WAIT);
+	k_thread_create(&socket_send_thread_data, socket_send_thread_stack_area, STACK_SIZE,
+			socket_send_thread, NULL, NULL, NULL, CONFIG_CONSOLE_BRIDGE_WS_PRIORITY, 0,
+			K_NO_WAIT);
 
 	k_thread_name_set(&socket_send_thread_data, "websocket_send");
 

@@ -6,12 +6,12 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(wallabmc_vpd, LOG_LEVEL_INF);
 
-#include <zephyr/sys/uuid.h>
 #include <zephyr/drivers/hwinfo.h>
+#include <zephyr/sys/uuid.h>
 #include <zephyr/version.h>
 
-#include "vpd.h"
 #include "git_sha.h"
+#include "vpd.h"
 
 #ifdef CONFIG_SHELL
 #include <zephyr/shell/shell.h>
@@ -37,10 +37,8 @@ static int cmd_vpd_show(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
-SHELL_STATIC_SUBCMD_SET_CREATE(sub_vpd_cmds,
-	SHELL_CMD(show, NULL, "Show VPD.", cmd_vpd_show),
-	SHELL_SUBCMD_SET_END
-);
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_vpd_cmds, SHELL_CMD(show, NULL, "Show VPD.", cmd_vpd_show),
+			       SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(vpd, &sub_vpd_cmds, "Vital product data", NULL);
 #endif /* CONFIG_SHELL */

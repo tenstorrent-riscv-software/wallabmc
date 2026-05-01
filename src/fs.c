@@ -6,11 +6,11 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(wallabmc_fs, LOG_LEVEL_INF);
 
-#include <zephyr/kernel.h>
-#include <zephyr/fs/fs.h>
 #include <zephyr/drivers/flash.h>
-#include <zephyr/storage/flash_map.h>
+#include <zephyr/fs/fs.h>
+#include <zephyr/kernel.h>
 #include <zephyr/kvss/nvs.h>
+#include <zephyr/storage/flash_map.h>
 
 #include "fs.h"
 
@@ -24,24 +24,21 @@ LOG_MODULE_REGISTER(wallabmc_fs, LOG_LEVEL_INF);
 #if !defined(PARTITION_EXISTS)
 /* Zephyr pre-4.4 compat */
 #define PARTITION_EXISTS FIXED_PARTITION_EXISTS
-#define PARTITION_ID FIXED_PARTITION_ID
+#define PARTITION_ID	 FIXED_PARTITION_ID
 #define PARTITION_DEVICE FIXED_PARTITION_DEVICE
 #define PARTITION_OFFSET FIXED_PARTITION_OFFSET
-#define PARTITION_SIZE FIXED_PARTITION_SIZE
+#define PARTITION_SIZE	 FIXED_PARTITION_SIZE
 #endif
 
 #if defined(CONFIG_PERSISTENT_STORAGE) && PARTITION_EXISTS(STORAGE_PARTITION_LABEL)
-#define STORAGE_PARTITION_ID		PARTITION_ID(STORAGE_PARTITION_LABEL)
-#define STORAGE_PARTITION_DEVICE	PARTITION_DEVICE(STORAGE_PARTITION_LABEL)
-#define STORAGE_PARTITION_OFFSET	PARTITION_OFFSET(STORAGE_PARTITION_LABEL)
-#define STORAGE_PARTITION_SIZE		PARTITION_SIZE(STORAGE_PARTITION_LABEL)
+#define STORAGE_PARTITION_ID	 PARTITION_ID(STORAGE_PARTITION_LABEL)
+#define STORAGE_PARTITION_DEVICE PARTITION_DEVICE(STORAGE_PARTITION_LABEL)
+#define STORAGE_PARTITION_OFFSET PARTITION_OFFSET(STORAGE_PARTITION_LABEL)
+#define STORAGE_PARTITION_SIZE	 PARTITION_SIZE(STORAGE_PARTITION_LABEL)
 
 static bool fs_is_enabled;
 
-bool fs_enabled(void)
-{
-	return fs_is_enabled;
-}
+bool fs_enabled(void) { return fs_is_enabled; }
 
 static struct nvs_fs nvs_fs = {
 	.flash_device = STORAGE_PARTITION_DEVICE,
@@ -63,8 +60,8 @@ static int mount_fs(void)
 
 	nvs_fs.sector_size = info.size;
 	nvs_fs.sector_count = STORAGE_PARTITION_SIZE / nvs_fs.sector_size;
-	LOG_INF("  NVS using flash at 0x%08lx sector size 0x%08x sector count %u",
-		nvs_fs.offset, nvs_fs.sector_size, nvs_fs.sector_count);
+	LOG_INF("  NVS using flash at 0x%08lx sector size 0x%08x sector count %u", nvs_fs.offset,
+		nvs_fs.sector_size, nvs_fs.sector_count);
 
 	/*
 	 * CONFIG_NVS_INIT_BAD_MEMORY_REGION is set, so this will try to init
@@ -177,8 +174,5 @@ int fs_init(void)
 	return 0;
 }
 
-int fs_exit(void)
-{
-	return umount_fs();
-}
+int fs_exit(void) { return umount_fs(); }
 #endif /* defined(CONFIG_PERSISTENT_STORAGE) && PARTITION_EXISTS(STORAGE_PARTITION_LABEL) */

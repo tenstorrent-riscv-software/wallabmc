@@ -7,24 +7,24 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(wallabmc_jtag, LOG_LEVEL_INF);
 
-#include <zephyr/posix/fcntl.h>
+#include <errno.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/net/socket.h>
-#include <errno.h>
-#include <unistd.h>
-#include <sys/socket.h>
+#include <zephyr/posix/fcntl.h>
 
-#define JTAG_PORT 7777
+#define JTAG_PORT	       7777
 #define JTAG_DAEMON_STACK_SIZE K_THREAD_STACK_SIZEOF(jtag_stack_area)
 #define JTAG_DAEMON_PRIORITY   CONFIG_JTAG_DAEMON_PRIORITY
 
 K_THREAD_STACK_DEFINE(jtag_stack_area, CONFIG_JTAG_DAEMON_STACK_SIZE);
 static struct k_thread jtag_thread_data;
 
-#define JTAG_TCK_NODE  DT_ALIAS(jtagtck)
-#define JTAG_TMS_NODE  DT_ALIAS(jtagtms)
-#define JTAG_TDI_NODE  DT_ALIAS(jtagtdi)
-#define JTAG_TDO_NODE  DT_ALIAS(jtagtdo)
+#define JTAG_TCK_NODE DT_ALIAS(jtagtck)
+#define JTAG_TMS_NODE DT_ALIAS(jtagtms)
+#define JTAG_TDI_NODE DT_ALIAS(jtagtdi)
+#define JTAG_TDO_NODE DT_ALIAS(jtagtdo)
 
 BUILD_ASSERT(DT_NODE_EXISTS(JTAG_TCK_NODE), "alias jtagtck missing");
 BUILD_ASSERT(DT_NODE_EXISTS(JTAG_TMS_NODE), "alias jtagtms missing");
@@ -63,10 +63,7 @@ static inline void set_tdi(int state)
 	}
 }
 
-static inline int get_tdo(void)
-{
-	return gpio_pin_get_dt(&tdo);
-}
+static inline int get_tdo(void) { return gpio_pin_get_dt(&tdo); }
 
 static void jtag_pins_disable(void)
 {
@@ -253,8 +250,7 @@ static void jtag_daemon_thread(void *a, void *b, void *c)
 		socklen_t client_addr_len = sizeof(client_addr);
 		int client_fd;
 
-		client_fd = accept(server_fd, (struct sockaddr *)&client_addr,
-				   &client_addr_len);
+		client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 		if (client_fd < 0) {
 			LOG_ERR("accept() failed: %d", errno);
 			continue;
@@ -275,11 +271,8 @@ int jtag_init(void)
 	LOG_INF("Starting OpenOCD JTAG Daemon...");
 
 	/* Start the JTAG daemon thread */
-	k_thread_create(&jtag_thread_data, jtag_stack_area,
-			JTAG_DAEMON_STACK_SIZE,
-			jtag_daemon_thread,
-			NULL, NULL, NULL,
-			JTAG_DAEMON_PRIORITY, 0, K_NO_WAIT);
+	k_thread_create(&jtag_thread_data, jtag_stack_area, JTAG_DAEMON_STACK_SIZE,
+			jtag_daemon_thread, NULL, NULL, NULL, JTAG_DAEMON_PRIORITY, 0, K_NO_WAIT);
 
 	k_thread_name_set(&jtag_thread_data, "jtag_daemon");
 

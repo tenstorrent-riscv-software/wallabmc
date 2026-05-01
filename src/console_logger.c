@@ -8,15 +8,15 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(console_logger, LOG_LEVEL_INF);
 
-#include <zephyr/spinlock.h>
-#include <zephyr/posix/fcntl.h>
-#include <zephyr/drivers/uart.h>
-#include <zephyr/drivers/gpio.h>
-#include <zephyr/net/socket.h>
 #include <errno.h>
-#include <unistd.h>
-#include <sys/socket.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/uart.h>
+#include <zephyr/net/socket.h>
+#include <zephyr/posix/fcntl.h>
+#include <zephyr/spinlock.h>
 
 #include "synch.h"
 
@@ -30,7 +30,8 @@ BUILD_ASSERT(DT_NODE_EXISTS(UART_NODE), "host-console-uart node missing");
 /* UART mux select GPIO from device tree */
 #define UARTMUXSEL_NODE DT_ALIAS(host_console_uart_muxsel)
 #if DT_NODE_EXISTS(UARTMUXSEL_NODE)
-static const struct gpio_dt_spec host_console_uart_muxsel_gpio = GPIO_DT_SPEC_GET(UARTMUXSEL_NODE, gpios);
+static const struct gpio_dt_spec host_console_uart_muxsel_gpio =
+	GPIO_DT_SPEC_GET(UARTMUXSEL_NODE, gpios);
 #endif
 
 /*

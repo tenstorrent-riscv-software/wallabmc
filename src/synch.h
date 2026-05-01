@@ -7,9 +7,9 @@
 
 #include <zephyr/kernel.h>
 
-#define EVENT_CONSOLE_LOG_DATA		0x0001
-#define EVENT_WEBSOCKET_CLIENT		0x0002
-#define EVENT_TELNET_CLIENT		0x0004
+#define EVENT_CONSOLE_LOG_DATA 0x0001
+#define EVENT_WEBSOCKET_CLIENT 0x0002
+#define EVENT_TELNET_CLIENT    0x0004
 
 extern struct k_event events;
 
