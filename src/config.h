@@ -4,6 +4,7 @@
  */
 #ifndef __CONFIG_H__
 #define __CONFIG_H__
+
 int config_init(void);
 int config_clear(void);
 const char *config_bmc_hostname(void);

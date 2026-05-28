@@ -79,7 +79,7 @@ static size_t strlcpy(char *ZRESTRICT dst, const char *ZRESTRICT src, size_t dst
 	size_t src_len = strlen(src);
 
 	if (dstsize != 0) {
-		size_t copy_len = min(src_len, dstsize - 1);
+		size_t copy_len = MIN(src_len, dstsize - 1);
 		memcpy(dst, src, copy_len);
 		dst[copy_len] = '\0';
 	}
@@ -249,28 +249,34 @@ static const char *ip4_atos(uint32_t a)
 }
 
 /* Not reentrant, don't use outside config.c */
-static uint32_t ip4_stoa(const char *str)
+static int ip4_stoa(const char *str, uint32_t *out)
 {
 	static struct in_addr addr;
 	int rc;
 
 	rc = inet_pton(AF_INET, str, &addr);
 	if (rc != 1) {
-		LOG_ERR("Could not convert IPv4 address %s in_addr", str);
+		LOG_ERR("Could not convert IPv4 address %s to in_addr", str);
 		return -EINVAL;
 	}
 
-	return addr.s_addr;
+	*out = addr.s_addr;
+	return 0;
 }
 
 int config_bmc_default_ip4_set(const char *str)
 {
 	int rc;
 
-	if (str)
-		config_data.bmc_default_ip4 = ip4_stoa(str);
-	else
+	if (str) {
+		rc = ip4_stoa(str, &config_data.bmc_default_ip4);
+		if (rc) {
+			LOG_ERR("Invalid IPv4 address string: %s", str);
+			return rc;
+		}
+	} else {
 		config_data.bmc_default_ip4 = 0; /* Remove default addr */
+	}
 
 	rc = net_do_set_default_ip4_from_config();
 	if (rc) {
@@ -291,10 +297,13 @@ int config_bmc_default_ip4_nm_set(const char *str)
 {
 	int rc;
 
-	if (str)
-		config_data.bmc_default_ip4_nm = ip4_stoa(str);
-	else
+	if (str) {
+		rc = ip4_stoa(str, &config_data.bmc_default_ip4_nm);
+		if (rc)
+			return rc;
+	} else {
 		config_data.bmc_default_ip4_nm = 0;
+	}
 
 	rc = net_do_set_default_ip4_from_config();
 	if (rc) {
@@ -315,10 +324,13 @@ int config_bmc_default_ip4_gw_set(const char *str)
 {
 	int rc;
 
-	if (str)
-		config_data.bmc_default_ip4_gw = ip4_stoa(str);
-	else
+	if (str) {
+		rc = ip4_stoa(str, &config_data.bmc_default_ip4_gw);
+		if (rc)
+			return rc;
+	} else {
 		config_data.bmc_default_ip4_gw = 0;
+	}
 
 	rc = net_do_set_default_ip4_from_config();
 	if (rc) {
@@ -510,7 +522,7 @@ static int cmd_config_bmc_ntp(const struct shell *sh, size_t argc, char **argv)
 		config_bmc_use_ntp_set(false);
 		shell_info(sh, "BMC NTP disabled");
 	} else {
-		shell_error(sh, "bmc dhcpv4: unknown argument %s", argv[1]);
+		shell_error(sh, "bmc ntp: unknown argument %s", argv[1]);
 		return -EINVAL;
 	}
 
@@ -548,6 +560,8 @@ int config_bmc_ntp_server_set(const char *ntp_server)
 
 static int cmd_config_bmc_ntp_server(const struct shell *sh, size_t argc, char **argv)
 {
+	int rc;
+
 	ARG_UNUSED(argc);
 
 	if (!is_boot_finished()) {
@@ -555,7 +569,12 @@ static int cmd_config_bmc_ntp_server(const struct shell *sh, size_t argc, char *
 		return -EAGAIN;
 	}
 
-	config_bmc_ntp_server_set(argv[1]);
+	rc = config_bmc_ntp_server_set(argv[1]);
+	if (rc) {
+		shell_error(sh, "Could not set BMC NTP server (err=%d)", rc);
+		return rc;
+	}
+
 	shell_info(sh, "BMC NTP server updated");
 
 	return 0;
@@ -661,6 +680,9 @@ static int cmd_config_host_auto_poweron(const struct shell *sh, size_t argc, cha
 	} else if (!strcmp(argv[1], "disable")) {
 		config_host_auto_poweron_set(false);
 		shell_info(sh, "Host auto poweron disabled");
+	} else {
+		shell_error(sh, "host auto_poweron: unknown argument %s", argv[1]);
+		return -EINVAL;
 	}
 
 	return 0;

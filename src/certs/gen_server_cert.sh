@@ -2,14 +2,16 @@
 # SPDX-FileCopyrightText: © 2025-2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+OPENSSL=${1:-openssl}
+
 # Generate a server private key
-openssl ecparam \
+$OPENSSL ecparam \
     -name prime256v1 \
     -genkey \
     -out server_privkey.pem
 
 # Generate a certificate signing request using server key
-openssl req \
+$OPENSSL req \
     -new \
     -sha256 \
     -key server_privkey.pem \
@@ -25,7 +27,7 @@ echo "extendedKeyUsage=serverAuth" >> server_csr.ext
 echo "subjectAltName=DNS:zephyr.local,IP.1:192.0.2.1,IP.2:2001:db8::1" >> server_csr.ext
 
 # Create a server certificate by signing the server CSR using the CA cert/key
-openssl x509 \
+$OPENSSL x509 \
     -req \
     -sha256 \
     -CA ca_cert.pem \
@@ -38,12 +40,12 @@ openssl x509 \
     -extfile server_csr.ext
 
 # Create DER encoded versions of server certificate and private key
-openssl ec \
+$OPENSSL ec \
     -outform der \
     -in server_privkey.pem \
     -out server_privkey.der
 
-openssl x509 \
+$OPENSSL x509 \
     -outform der \
     -in server_cert.pem \
     -out server_cert.der

@@ -128,12 +128,42 @@ if(CONFIG_APP_WEB)
 endif()
 
 if(CONFIG_APP_CRYPTO)
+  find_program(OPENSSL_EXECUTABLE openssl)
+  if(NOT OPENSSL_EXECUTABLE)
+    message(FATAL_ERROR "CONFIG_APP_CRYPTO requires openssl in PATH")
+  endif()
+  find_program(BASH_EXECUTABLE bash)
+
+  set(generated_certs_dir ${CMAKE_CURRENT_BINARY_DIR}/generated_certs)
+  set(generated_server_cert_der ${generated_certs_dir}/server_cert.der)
+  set(generated_server_privkey_der ${generated_certs_dir}/server_privkey.der)
+
+  add_custom_command(
+    OUTPUT
+      ${generated_server_cert_der}
+      ${generated_server_privkey_der}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${generated_certs_dir}
+    COMMAND ${BASH_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/src/certs/gen_ca_cert.sh ${OPENSSL_EXECUTABLE}
+    COMMAND ${BASH_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/src/certs/gen_server_cert.sh ${OPENSSL_EXECUTABLE}
+    WORKING_DIRECTORY ${generated_certs_dir}
+    DEPENDS
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/certs/gen_ca_cert.sh
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/certs/gen_server_cert.sh
+    COMMENT "Generating TLS certificates"
+    VERBATIM
+  )
+
+  add_custom_target(app_generate_certs
+    DEPENDS ${generated_server_cert_der} ${generated_server_privkey_der}
+  )
+  add_dependencies(app app_generate_certs)
+
   foreach(inc_file
     server_cert.der
     server_privkey.der
   )
     generate_inc_file_for_target(app
-      src/certs/${inc_file}
+      ${generated_certs_dir}/${inc_file}
       ${gen_dir}/${inc_file}.inc
     )
   endforeach()

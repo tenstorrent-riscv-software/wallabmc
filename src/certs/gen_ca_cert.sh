@@ -2,14 +2,16 @@
 # SPDX-FileCopyrightText: © 2025-2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+OPENSSL=${1:-openssl}
+
 # Generate a root CA private key
-openssl ecparam \
+$OPENSSL ecparam \
     -name prime256v1 \
     -genkey \
     -out ca_privkey.pem
 
 # Generate a root CA certificate using private key
-openssl req \
+$OPENSSL req \
     -new \
     -x509 \
     -days 36500 \

@@ -33,7 +33,7 @@ WallaBMC currently supports the following hardware platforms:
 
 ### Prerequisites
 
-Before getting started, ensure you have a proper Zephyr development environment. Follow the official [Zephyr Getting Started Guide](https://docs.zephyrproject.org/latest/getting_started/index.html).
+Before getting started, ensure you have a proper Zephyr development environment. Follow the official [Zephyr Getting Started Guide](https://docs.zephyrproject.org/latest/develop/getting_started/index.html).
 
 Required tools:
 
@@ -58,7 +58,7 @@ Go to your zephyr build dir:
 ```
 west build --sysbuild -b nucleo_f767zi ~/wallabmc
 ```
-Where `nucleo_f767zi` can be replaced with the boards in [Hardware Support](#hardware-support). 
+Where `nucleo_f767zi` can be replaced with the boards in [Hardware Support](#hardware-support).
 
 See [flashing](#flashing) on how to install
 

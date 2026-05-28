@@ -1,6 +1,0 @@
-subjectKeyIdentifier=hash
-authorityKeyIdentifier=keyid,issuer
-basicConstraints=critical,CA:FALSE
-keyUsage=critical,digitalSignature
-extendedKeyUsage=serverAuth
-subjectAltName=DNS:zephyr.local,IP.1:192.0.2.1,IP.2:2001:db8::1
