@@ -7,6 +7,7 @@
 #include <st/f4/stm32f407Xe.dtsi>
 #include <st/f4/stm32f407v(e-g)tx-pinctrl.dtsi>
 #include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/pwm/pwm.h>
 
 / {
 	model = "SiFive HiFive Premier P550 MCU";
@@ -63,8 +64,78 @@
 			gpios = <&gpiob 15 GPIO_ACTIVE_HIGH>;
 			label = "UARTMUXSEL";
 		};
+		pwrok: pwrok {
+			gpios = <&gpioe 5 GPIO_ACTIVE_HIGH>;
+			label = "DCDC_PWR_OK";
+		};
+		som_reset: som_reset {
+			gpios = <&gpiod 5 GPIO_ACTIVE_LOW>;
+			label = "SOM_RESET";
+		};
+		som_rst_detect: som_rst_detect {
+			gpios = <&gpiod 6 GPIO_ACTIVE_LOW>;
+			label = "SOM_RST_DETECT";
+		};
+		power_button: power_button {
+			gpios = <&gpioa 12 GPIO_ACTIVE_LOW>;
+			label = "POWER_BUTTON";
+		};
+		pwr_led: pwr_led_key {
+			gpios = <&gpiod 10 GPIO_ACTIVE_HIGH>;
+			label = "POWER_LED";
+		};
+		slp_led: slp_led_key {
+			gpios = <&gpiod 11 GPIO_ACTIVE_HIGH>;
+			label = "SLEEP_LED";
+		};
+		bootsel0: bootsel0 {
+			gpios = <&gpiod 0 GPIO_ACTIVE_HIGH>;
+			label = "BOOT_SEL0";
+		};
+		bootsel1: bootsel1 {
+			gpios = <&gpiod 1 GPIO_ACTIVE_HIGH>;
+			label = "BOOT_SEL1";
+		};
+		bootsel2: bootsel2 {
+			gpios = <&gpiod 2 GPIO_ACTIVE_HIGH>;
+			label = "BOOT_SEL2";
+		};
+		bootsel3: bootsel3 {
+			gpios = <&gpiod 3 GPIO_ACTIVE_HIGH>;
+			label = "BOOT_SEL3";
+		};
+		fan_tach0: fan_tach0 {
+			gpios = <&gpioe 6 GPIO_ACTIVE_HIGH>;
+			label = "FAN_TACH0";
+		};
+		fan_tach1: fan_tach1 {
+			gpios = <&gpiob 14 GPIO_ACTIVE_HIGH>;
+			label = "FAN_TACH1";
+		};
+		i2c_mux_en: i2c_mux_en {
+			gpios = <&gpioa 3 GPIO_ACTIVE_HIGH>;
+			label = "I2C_MUX_EN";
+		};
+		eeprom_wp: eeprom_wp {
+			gpios = <&gpioc 8 GPIO_ACTIVE_HIGH>;
+			label = "EEPROM_WP";
+		};
 	};
 
+
+	fans {
+		compatible = "pwm-leds";
+
+		fan0: fan_0 {
+			pwms = <&pwm4 1 40000 PWM_POLARITY_INVERTED>;
+			label = "Fan 0";
+		};
+
+		fan1: fan_1 {
+			pwms = <&pwm4 2 40000 PWM_POLARITY_INVERTED>;
+			label = "Fan 1";
+		};
+	};
 
 	aliases {
 		led0 = &red_led;
@@ -74,6 +145,7 @@
 		boot1 = &boot1;
 		dcen = &dcen;
 		atxpson = &atxpson;
+		reset-gpio-1 = &som_reset;
 	};
 };
 
@@ -160,5 +232,46 @@
 	eth_phy: ethernet-phy@0 {
 		compatible = "ethernet-phy";
 		reg = <0x00>;
+	};
+};
+
+&i2c1 {
+	pinctrl-0 = <&i2c1_scl_pb6 &i2c1_sda_pb7>;
+	pinctrl-names = "default";
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+
+	eeprom: eeprom@50 {
+		compatible = "atmel,at24";
+		reg = <0x50>;
+		size = <256>;
+		pagesize = <8>;
+		address-width = <8>;
+		timeout = <5>;
+		zephyr,deferred-init;
+	};
+};
+
+&timers4 {
+	status = "okay";
+	pwm4: pwm {
+		status = "okay";
+		pinctrl-0 = <&tim4_ch1_pd12 &tim4_ch2_pd13>;
+		pinctrl-names = "default";
+	};
+};
+
+&i2c3 {
+	pinctrl-0 = <&i2c3_scl_pa8 &i2c3_sda_pc9>;
+	pinctrl-names = "default";
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+
+	ina226: ina226@44 {
+		compatible = "ti,ina226";
+		reg = <0x44>;
+		rshunt-micro-ohms = <1000>;
+		current-lsb-microamps = <1000>;
+		zephyr,deferred-init;
 	};
 };
