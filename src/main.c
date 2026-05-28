@@ -26,6 +26,7 @@ LOG_MODULE_REGISTER(wallabmc, LOG_LEVEL_INF);
 #include "console_bridge_ws.h"
 #include "vpd.h"
 #include "git_sha.h"
+#include "fan.h"
 
 static bool boot_finished = false;
 
@@ -234,6 +235,12 @@ int main(void)
 	if (power_init() < 0) {
 		LOG_ERR("Power init failed");
 		return -1;
+	}
+
+	LOG_DBG("Fan init");
+	if (fan_init() < 0) {
+		LOG_ERR("Fan init failed");
+		/* Continue */
 	}
 
 	LOG_DBG("Reset init");

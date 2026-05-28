@@ -419,4 +419,11 @@ config CONSOLE_BRIDGE_PRIORITY
 
 endif
 
+menu "Hardware management"
+
+rsource "src/Kconfig.power"
+rsource "src/Kconfig.fan"
+
+endmenu
+
 source "Kconfig.zephyr"
