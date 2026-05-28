@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+[Unit]
+Description=WallaBMC SOM protocol daemon
+After=dev-ttyS2.device
+BindsTo=dev-ttyS2.device
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/somd
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
