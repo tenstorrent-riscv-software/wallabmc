@@ -8,11 +8,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdio.h>
+#include <zephyr/data/json.h>
 #include <zephyr/kernel.h>
 #include <zephyr/net/http/server.h>
 #include <zephyr/net/http/service.h>
-#include <zephyr/data/json.h>
-#include <stdio.h>
 
 #include "power.h"
 
@@ -24,7 +24,8 @@ static const uint8_t index_html_gz[] = {
 };
 
 static struct http_resource_detail_static index_html_gz_resource_detail = {
-	.common = {
+	.common =
+		{
 			.type = HTTP_RESOURCE_TYPE_STATIC,
 			.bitmask_of_supported_http_methods = BIT(HTTP_GET),
 			.content_encoding = "gzip",
@@ -39,7 +40,8 @@ static const uint8_t logo_jpeg_gz[] = {
 };
 
 static struct http_resource_detail_static logo_jpeg_gz_resource_detail = {
-	.common = {
+	.common =
+		{
 			.type = HTTP_RESOURCE_TYPE_STATIC,
 			.bitmask_of_supported_http_methods = BIT(HTTP_GET),
 			.content_encoding = "gzip",
@@ -54,7 +56,8 @@ static const uint8_t favicon_png_gz[] = {
 };
 
 static struct http_resource_detail_static favicon_png_gz_resource_detail = {
-	.common = {
+	.common =
+		{
 			.type = HTTP_RESOURCE_TYPE_STATIC,
 			.bitmask_of_supported_http_methods = BIT(HTTP_GET),
 			.content_encoding = "gzip",
@@ -64,8 +67,7 @@ static struct http_resource_detail_static favicon_png_gz_resource_detail = {
 	.static_data_len = sizeof(favicon_png_gz),
 };
 
-HTTP_RESOURCE_DEFINE(index_html_gz_resource, http_service, "/",
-		     &index_html_gz_resource_detail);
+HTTP_RESOURCE_DEFINE(index_html_gz_resource, http_service, "/", &index_html_gz_resource_detail);
 HTTP_RESOURCE_DEFINE(logo_jpeg_gz_resource, http_service, "/logo.jpeg",
 		     &logo_jpeg_gz_resource_detail);
 HTTP_RESOURCE_DEFINE(favicon_png_gz_resource, http_service, "/favicon.png",

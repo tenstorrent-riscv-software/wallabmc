@@ -3,24 +3,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
- #include <zephyr/kernel.h>
+#include <zephyr/kernel.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(console_bridge, LOG_LEVEL_INF);
 
-#include <zephyr/posix/fcntl.h>
-#include <zephyr/net/socket.h>
 #include <errno.h>
-#include <unistd.h>
-#include <sys/socket.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <zephyr/net/socket.h>
+#include <zephyr/posix/fcntl.h>
 
 #include "console_logger.h"
 #include "synch.h"
 
-#define CONSOLE_BRIDGE_PORT 22
+#define CONSOLE_BRIDGE_PORT	  22
 #define CONSOLE_BRIDGE_STACK_SIZE K_THREAD_STACK_SIZEOF(console_bridge_stack_area)
-#define CONSOLE_BRIDGE_PRIORITY   CONFIG_CONSOLE_BRIDGE_PRIORITY
+#define CONSOLE_BRIDGE_PRIORITY	  CONFIG_CONSOLE_BRIDGE_PRIORITY
 
 K_THREAD_STACK_DEFINE(console_bridge_stack_area, CONFIG_CONSOLE_BRIDGE_STACK_SIZE);
 static struct k_thread console_bridge_thread_data;
@@ -57,10 +57,8 @@ static void socket_send_thread(void *a, void *b, void *c)
 		if (ret < 0)
 			continue;
 		if (ret == 0) {
-			k_event_wait_safe(&events,
-					EVENT_TELNET_CLIENT |
-					EVENT_CONSOLE_LOG_DATA,
-					false, K_FOREVER);
+			k_event_wait_safe(&events, EVENT_TELNET_CLIENT | EVENT_CONSOLE_LOG_DATA,
+					  false, K_FOREVER);
 			continue;
 		}
 
@@ -158,8 +156,7 @@ static void console_bridge_daemon_thread(void *a, void *b, void *c)
 		socklen_t client_addr_len = sizeof(client_addr);
 		int client_fd;
 
-		client_fd = accept(server_fd, (struct sockaddr *)&client_addr,
-				   &client_addr_len);
+		client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 		if (client_fd < 0) {
 			LOG_ERR("accept() failed: %d", errno);
 			continue;
@@ -177,20 +174,17 @@ static void console_bridge_daemon_thread(void *a, void *b, void *c)
 
 int console_bridge_init(void)
 {
-	LOG_INF("Starting console bridge daemon (host console UART -> TCP port %d)...", CONSOLE_BRIDGE_PORT);
+	LOG_INF("Starting console bridge daemon (host console UART -> TCP port %d)...",
+		CONSOLE_BRIDGE_PORT);
 
 	k_thread_create(&console_bridge_thread_data, console_bridge_stack_area,
-			CONSOLE_BRIDGE_STACK_SIZE,
-			console_bridge_daemon_thread,
-			NULL, NULL, NULL,
+			CONSOLE_BRIDGE_STACK_SIZE, console_bridge_daemon_thread, NULL, NULL, NULL,
 			CONSOLE_BRIDGE_PRIORITY, 0, K_NO_WAIT);
 
 	k_thread_name_set(&console_bridge_thread_data, "console_bridge");
 
 	k_thread_create(&socket_send_thread_data, socket_send_thread_stack_area,
-			CONFIG_CONSOLE_BRIDGE_STACK_SIZE,
-			socket_send_thread,
-			NULL, NULL, NULL,
+			CONFIG_CONSOLE_BRIDGE_STACK_SIZE, socket_send_thread, NULL, NULL, NULL,
 			CONSOLE_BRIDGE_PRIORITY, 0, K_NO_WAIT);
 
 	k_thread_name_set(&socket_send_thread_data, "socket_send");

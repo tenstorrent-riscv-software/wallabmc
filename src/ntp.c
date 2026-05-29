@@ -10,15 +10,15 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(wallabmc_ntp, LOG_LEVEL_DBG);
 
-#include <zephyr/net/socket.h>
-#include <zephyr/net/socket_service.h>
-#include <zephyr/net/sntp.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <zephyr/net/sntp.h>
+#include <zephyr/net/socket.h>
+#include <zephyr/net/socket_service.h>
 
+#include "config.h"
 #include "ntp.h"
 #include "rtc.h"
-#include "config.h"
 
 static int sntp_set_clocks(struct sntp_time *ts)
 {
@@ -45,7 +45,7 @@ static int sntp_set_clocks(struct sntp_time *ts)
 }
 
 static int dns_query(const char *host, uint16_t port, int family, int socktype,
-			struct sockaddr *addr, socklen_t *addrlen)
+		     struct sockaddr *addr, socklen_t *addrlen)
 {
 	struct addrinfo hints = {
 		.ai_family = family,
@@ -70,7 +70,7 @@ static int dns_query(const char *host, uint16_t port, int family, int socktype,
 	return 0;
 }
 
-#define NTP_TIMEOUT_MS 3000
+#define NTP_TIMEOUT_MS	3000
 #define NTP_SERVER_ADDR "pool.ntp.org"
 #define NTP_SERVER_PORT 123
 
@@ -131,7 +131,7 @@ static void ntp_sync_work_handler(struct k_work *work)
 		if (!ntp_synced) {
 			ntp_synced = true;
 			/* Upgrade to 6 hour resync */
-			ntp_interval_sec = 6*60*60;
+			ntp_interval_sec = 6 * 60 * 60;
 		}
 	}
 
@@ -144,10 +144,7 @@ static void ntp_sync_work_handler(struct k_work *work)
 	k_work_schedule(&ntp_sync_work, K_SECONDS(ntp_interval_sec));
 }
 
-bool ntp_is_synced(void)
-{
-	return ntp_synced;
-}
+bool ntp_is_synced(void) { return ntp_synced; }
 
 int start_ntp(void)
 {

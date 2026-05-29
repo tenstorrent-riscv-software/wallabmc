@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/sensor.h>
+#include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
 
 #include "main.h"
@@ -69,15 +69,11 @@ static int cmd_show_sensors(const struct shell *sh, size_t argc, char **argv)
 }
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_sensors_cmds,
-	SHELL_CMD(show,		NULL, "Show sensors.", cmd_show_sensors),
-	SHELL_SUBCMD_SET_END
-);
+			       SHELL_CMD(show, NULL, "Show sensors.", cmd_show_sensors),
+			       SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(sensors, &sub_sensors_cmds, "Sensors commands", NULL);
 
 #else
-int read_die_temperature(struct sensor_value *val)
-{
-	return -ENODEV;
-}
+int read_die_temperature(struct sensor_value *val) { return -ENODEV; }
 #endif

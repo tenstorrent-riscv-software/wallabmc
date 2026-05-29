@@ -3,12 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/shell/shell.h>
-#include <stdlib.h>
 #include <ctype.h>
-#include <zephyr/sys/util.h>
-#include <zephyr/kernel.h>
+#include <stdlib.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/kernel.h>
+#include <zephyr/shell/shell.h>
+#include <zephyr/sys/util.h>
 
 #define LOG_LEVEL CONFIG_LOG_DEFAULT_LEVEL
 #include <zephyr/logging/log.h>
@@ -18,8 +18,8 @@ LOG_MODULE_REGISTER(wallabmc_power);
 
 #define GPIO_POWER_1 DT_ALIAS(power_gpio_1)
 #define GPIO_POWER_2 DT_ALIAS(power_gpio_2)
-#define GPIO_RESET DT_ALIAS(reset_gpio_1)
-#define STATUS_LED DT_ALIAS(status_led)
+#define GPIO_RESET   DT_ALIAS(reset_gpio_1)
+#define STATUS_LED   DT_ALIAS(status_led)
 
 static const struct gpio_dt_spec power_gpios[] = {
 #if DT_NODE_HAS_STATUS_OKAY(GPIO_POWER_1)
@@ -32,10 +32,7 @@ static const struct gpio_dt_spec power_gpios[] = {
 
 static bool system_power_state = false;
 
-bool power_get_state(void)
-{
-	return system_power_state;
-}
+bool power_get_state(void) { return system_power_state; }
 
 static int power_on(void)
 {
@@ -126,11 +123,9 @@ static int cmd_power_off(const struct shell *sh, size_t argc, char **argv)
 	return power_off();
 }
 
-SHELL_STATIC_SUBCMD_SET_CREATE(sub_power_cmds,
-	SHELL_CMD(on,    NULL, "Power on.", cmd_power_on),
-	SHELL_CMD(off,   NULL, "Power off.", cmd_power_off),
-	SHELL_SUBCMD_SET_END
-);
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_power_cmds, SHELL_CMD(on, NULL, "Power on.", cmd_power_on),
+			       SHELL_CMD(off, NULL, "Power off.", cmd_power_off),
+			       SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(power, &sub_power_cmds, "Power commands", NULL);
 
@@ -138,7 +133,7 @@ static const struct gpio_dt_spec gpio_reset =
 #if DT_NODE_HAS_STATUS_OKAY(GPIO_RESET)
 	GPIO_DT_SPEC_GET(GPIO_RESET, gpios);
 #else
-	{ 0 };
+	{0};
 #endif
 
 int reset_init(void)
@@ -208,13 +203,13 @@ SHELL_CMD_REGISTER(reset, NULL, "Reset.", cmd_reset);
 static const struct gpio_dt_spec status_led = GPIO_DT_SPEC_GET(STATUS_LED, gpios);
 
 /* LED blinking thread */
-#define LED_BLINK_STACK_SIZE 256
-#define LED_BLINK_PRIORITY   (CONFIG_NUM_PREEMPT_PRIORITIES - 1)
-#define LED_BLINK_PERIOD_DOT    250
-#define LED_BLINK_PERIOD_DASH   (3 * LED_BLINK_PERIOD_DOT)
-#define LED_BLINK_PERIOD_PAUSE  (LED_BLINK_PERIOD_DOT)
+#define LED_BLINK_STACK_SIZE	256
+#define LED_BLINK_PRIORITY	(CONFIG_NUM_PREEMPT_PRIORITIES - 1)
+#define LED_BLINK_PERIOD_DOT	250
+#define LED_BLINK_PERIOD_DASH	(3 * LED_BLINK_PERIOD_DOT)
+#define LED_BLINK_PERIOD_PAUSE	(LED_BLINK_PERIOD_DOT)
 #define LED_BLINK_PERIOD_LETTER (3 * LED_BLINK_PERIOD_DOT)
-#define LED_BLINK_PERIOD_WORD   (7 * LED_BLINK_PERIOD_DOT)
+#define LED_BLINK_PERIOD_WORD	(7 * LED_BLINK_PERIOD_DOT)
 
 static K_KERNEL_STACK_DEFINE(led_blink_stack, LED_BLINK_STACK_SIZE);
 static struct k_thread led_blink_thread_data;
@@ -281,17 +276,12 @@ int status_led_init(void)
 	}
 
 	k_thread_create(&led_blink_thread_data, led_blink_stack,
-			K_THREAD_STACK_SIZEOF(led_blink_stack),
-			led_blink_thread,
-			NULL, NULL, NULL,
+			K_THREAD_STACK_SIZEOF(led_blink_stack), led_blink_thread, NULL, NULL, NULL,
 			LED_BLINK_PRIORITY, 0, K_NO_WAIT);
 	k_thread_name_set(&led_blink_thread_data, "led_blink");
 
 	return 0;
 }
-#else /* DT_NODE_HAS_STATUS_OKAY(STATUS_LED) */
-int status_led_init(void)
-{
-	return 0;
-}
+#else  /* DT_NODE_HAS_STATUS_OKAY(STATUS_LED) */
+int status_led_init(void) { return 0; }
 #endif /* DT_NODE_HAS_STATUS_OKAY(STATUS_LED) */

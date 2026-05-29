@@ -7,8 +7,8 @@
 #include <zephyr/logging/log_ctrl.h>
 LOG_MODULE_REGISTER(wallabmc_rtc, LOG_LEVEL_INF);
 
-#include <zephyr/kernel.h>
 #include <zephyr/drivers/rtc.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sys/timeutil.h>
 
 #include "rtc.h"
@@ -35,8 +35,7 @@ int rtc_set_from_timespec(const struct timespec *ts)
 		return ret;
 	}
 
-	LOG_INF("RTC: %04d-%02d-%02d %02d:%02d:%02d",
-		tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+	LOG_INF("RTC: %04d-%02d-%02d %02d:%02d:%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
 		tm.tm_hour, tm.tm_min, tm.tm_sec);
 
 	return 0;
@@ -71,8 +70,8 @@ static int time_iso_to_ts(const char *str, struct timespec *ts)
 
 	memset(&tm, 0, sizeof(struct tm));
 
-	ret = sscanf(str, "%d-%d-%dT%d:%d:%d.%3dZ",
-			&year, &month, &day, &hour, &minute, &second, &frac);
+	ret = sscanf(str, "%d-%d-%dT%d:%d:%d.%3dZ", &year, &month, &day, &hour, &minute, &second,
+		     &frac);
 	if (ret != 7)
 		return -EINVAL;
 	if (year < 1900)
@@ -81,11 +80,11 @@ static int time_iso_to_ts(const char *str, struct timespec *ts)
 		return -EINVAL;
 
 	tm.tm_year = year - 1900;
-	tm.tm_mon  = month - 1;
+	tm.tm_mon = month - 1;
 	tm.tm_mday = day;
 	tm.tm_hour = hour;
-	tm.tm_min  = minute;
-	tm.tm_sec  = second;
+	tm.tm_min = minute;
+	tm.tm_sec = second;
 
 	epoch_sec = timeutil_timegm(&tm);
 	if (epoch_sec == -1)
@@ -160,8 +159,7 @@ int rtc_init(void)
 		return ret;
 	}
 
-	LOG_INF("RTC: %04d-%02d-%02d %02d:%02d:%02d",
-		tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+	LOG_INF("RTC: %04d-%02d-%02d %02d:%02d:%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
 		tm.tm_hour, tm.tm_min, tm.tm_sec);
 
 	ts.tv_sec = timeutil_timegm(rtc_time_to_tm(&tm));

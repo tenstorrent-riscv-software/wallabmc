@@ -8,21 +8,20 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(wallabmc_button, LOG_LEVEL_INF);
 
-#include <zephyr/kernel.h>
+#include <inttypes.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sys/util.h>
-#include <inttypes.h>
 
 #include "button.h"
-#include "main.h"
 #include "config.h"
+#include "main.h"
 
-#define USER_BUTTON_NODE	DT_ALIAS(reset_button)
+#define USER_BUTTON_NODE DT_ALIAS(reset_button)
 #if DT_NODE_HAS_STATUS_OKAY(USER_BUTTON_NODE)
 
-static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET_OR(USER_BUTTON_NODE, gpios,
-							      {0});
+static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET_OR(USER_BUTTON_NODE, gpios, {0});
 
 static void reset_work_fn(struct k_work *work)
 {
@@ -66,8 +65,7 @@ static K_WORK_DELAYABLE_DEFINE(button_work, button_work_fn);
 
 static struct gpio_callback button_cb_data;
 
-static void button_pressed(const struct device *dev,
-			   struct gpio_callback *cb, uint32_t pins)
+static void button_pressed(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
 	k_work_schedule(&button_work, K_MSEC(DEBOUNCE_TIME_MS));
 }
@@ -77,8 +75,7 @@ int button_init(void)
 	int ret;
 
 	if (!gpio_is_ready_dt(&button)) {
-		LOG_ERR("Error: button device %s is not ready",
-			button.port->name);
+		LOG_ERR("Error: button device %s is not ready", button.port->name);
 		return -ENOSYS;
 	}
 
