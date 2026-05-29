@@ -115,13 +115,21 @@ endif()
 if(CONFIG_APP_WEB)
   foreach(web_resource
     index.html
-    logo.jpeg
-    favicon.png
   )
     generate_inc_file_for_target(app
       static_web_resources/${web_resource}
       ${gen_dir}/${web_resource}.gz.inc
       --gzip
+    )
+  endforeach()
+
+  foreach(web_resource
+    logo.png
+    favicon.png
+  )
+    generate_inc_file_for_target(app
+      static_web_resources/${web_resource}
+      ${gen_dir}/${web_resource}.inc
     )
   endforeach()
 endif()

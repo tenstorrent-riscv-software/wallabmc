@@ -34,47 +34,45 @@ static struct http_resource_detail_static index_html_gz_resource_detail = {
 	.static_data_len = sizeof(index_html_gz),
 };
 
-static const uint8_t logo_jpeg_gz[] = {
-#include "logo.jpeg.gz.inc"
+static const uint8_t logo_png[] = {
+#include "logo.png.inc"
 };
 
-static struct http_resource_detail_static logo_jpeg_gz_resource_detail = {
+static struct http_resource_detail_static logo_png_resource_detail = {
 	.common = {
 			.type = HTTP_RESOURCE_TYPE_STATIC,
 			.bitmask_of_supported_http_methods = BIT(HTTP_GET),
-			.content_encoding = "gzip",
-			.content_type = "image/jpeg",
-		},
-	.static_data = logo_jpeg_gz,
-	.static_data_len = sizeof(logo_jpeg_gz),
-};
-
-static const uint8_t favicon_png_gz[] = {
-#include "favicon.png.gz.inc"
-};
-
-static struct http_resource_detail_static favicon_png_gz_resource_detail = {
-	.common = {
-			.type = HTTP_RESOURCE_TYPE_STATIC,
-			.bitmask_of_supported_http_methods = BIT(HTTP_GET),
-			.content_encoding = "gzip",
 			.content_type = "image/png",
 		},
-	.static_data = favicon_png_gz,
-	.static_data_len = sizeof(favicon_png_gz),
+	.static_data = logo_png,
+	.static_data_len = sizeof(logo_png),
+};
+
+static const uint8_t favicon_png[] = {
+#include "favicon.png.inc"
+};
+
+static struct http_resource_detail_static favicon_png_resource_detail = {
+	.common = {
+			.type = HTTP_RESOURCE_TYPE_STATIC,
+			.bitmask_of_supported_http_methods = BIT(HTTP_GET),
+			.content_type = "image/png",
+		},
+	.static_data = favicon_png,
+	.static_data_len = sizeof(favicon_png),
 };
 
 HTTP_RESOURCE_DEFINE(index_html_gz_resource, http_service, "/",
 		     &index_html_gz_resource_detail);
-HTTP_RESOURCE_DEFINE(logo_jpeg_gz_resource, http_service, "/logo.jpeg",
-		     &logo_jpeg_gz_resource_detail);
-HTTP_RESOURCE_DEFINE(favicon_png_gz_resource, http_service, "/favicon.png",
-		     &favicon_png_gz_resource_detail);
+HTTP_RESOURCE_DEFINE(logo_png_resource, http_service, "/logo.png",
+		     &logo_png_resource_detail);
+HTTP_RESOURCE_DEFINE(favicon_png_resource, http_service, "/favicon.png",
+		     &favicon_png_resource_detail);
 #if defined(CONFIG_APP_HTTPS)
 HTTP_RESOURCE_DEFINE(index_html_gz_resource_https, https_service, "/",
 		     &index_html_gz_resource_detail);
-HTTP_RESOURCE_DEFINE(logo_jpeg_gz_resource_https, https_service, "/logo.jpeg",
-		     &logo_jpeg_gz_resource_detail);
-HTTP_RESOURCE_DEFINE(favicon_png_gz_resource_https, https_service, "/favicon.png",
-		     &favicon_png_gz_resource_detail);
+HTTP_RESOURCE_DEFINE(logo_png_resource_https, https_service, "/logo.png",
+		     &logo_png_resource_detail);
+HTTP_RESOURCE_DEFINE(favicon_png_resource_https, https_service, "/favicon.png",
+		     &favicon_png_resource_detail);
 #endif /* defined(CONFIG_APP_HTTPS) */
