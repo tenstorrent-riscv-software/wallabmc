@@ -6,3 +6,4 @@ ignore:
     - static_web_resources/logo.png
     - static_web_resources/favicon.png
     - img/logo.png
+    - img/logo-big.png
