@@ -3,6 +3,7 @@
 # is documented in LICENSE-DOCS.
 ignore:
   include:
-    - static_web_resources/logo.jpeg
+    - static_web_resources/logo.png
     - static_web_resources/favicon.png
     - img/logo.png
+    - img/logo-big.png
