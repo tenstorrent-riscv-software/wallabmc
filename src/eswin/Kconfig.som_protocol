@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Red Hat, LLC
+# SOM-MCU UART protocol (UART4 ↔ SoC UART2)
+
+config SOM_PROTOCOL
+	bool "SOM-MCU UART4 communication protocol"
+	default y
+	depends on $(dt_nodelabel_enabled,uart4)
+	select SERIAL
+	select UART_INTERRUPT_DRIVEN
+	help
+	  Bidirectional framed protocol between the BMC (MCU UART4) and the
+	  SoC (SoC UART2). Used for keepalive, PVT queries, and graceful
+	  shutdown/restart coordination with the host-side somd daemon.
+
+if SOM_PROTOCOL
+
+config SOM_PROTOCOL_STACK_SIZE
+	int "SOM protocol thread stack size"
+	default 2048
+
+config SOM_PROTOCOL_PRIORITY
+	int "SOM protocol thread priority"
+	default 5
+
+config SOM_PROTOCOL_TX_TIMEOUT_MS
+	int "SOM command response timeout (ms)"
+	default 2000
+
+config SOM_KEEPALIVE
+	bool "SOM keepalive health monitor"
+	default y
+
+config SOM_KEEPALIVE_INTERVAL_MS
+	int "Keepalive poll interval (ms)"
+	default 1000
+	depends on SOM_KEEPALIVE
+
+config SOM_KEEPALIVE_FAIL_THRESHOLD
+	int "Consecutive failures before marking SOM offline"
+	default 5
+	depends on SOM_KEEPALIVE
+
+config SOM_KEEPALIVE_STACK_SIZE
+	int "Keepalive thread stack size"
+	default 1024
+	depends on SOM_KEEPALIVE
+
+config GRACEFUL_SHUTDOWN_TIMEOUT_MS
+	int "Graceful shutdown timeout (ms)"
+	default 60000
+	help
+	  Time to wait for SOM to send shutdown NOTIFY before forcing
+	  power off. Linux shutdown can take 30+ seconds for service
+	  stops and filesystem sync.
+
+config GRACEFUL_REBOOT_TIMEOUT_MS
+	int "Graceful reboot timeout (ms)"
+	default 60000
+	help
+	  Time to wait for SOM to send reboot NOTIFY before forcing
+	  reset. Linux reboot can take 30+ seconds.
+
+endif # SOM_PROTOCOL
