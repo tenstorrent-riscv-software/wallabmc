@@ -36,15 +36,32 @@
         power-gpio-1 = &dcen;
         power-gpio-2 = &atxpson;
         status-led = &blue_led;
+        reset-gpio = &som_reset;
+        power-good = &pwrok;
+        power-button = &power_button;
+        power-led = &pwr_led;
+        sleep-led = &slp_led;
 
-	host-console-uart = &usart6;
-	host-console-uart-muxsel = &uartmuxsel;
+        fan-tach-0 = &fan_tach0;
+        fan-tach-1 = &fan_tach1;
+
+        host-console-uart = &usart6;
+        host-console-uart-muxsel = &uartmuxsel;
+        reset-button = &user_button_recovery;
+
+        bootsel-0 = &bootsel0;
+        bootsel-1 = &bootsel1;
+        bootsel-2 = &bootsel2;
+        bootsel-3 = &bootsel3;
+
+        i2c-mux-en = &i2c_mux_en;
+        eeprom-wp = &eeprom_wp;
     };
 
 };
 
 &spi4 {
-     status = "disabled";
+    status = "disabled";
 };
 
 &rng {
@@ -52,27 +69,27 @@
 };
 
 &flash0 {
-	partitions {
-		compatible = "fixed-partitions";
-		#address-cells = <1>;
-		#size-cells = <1>;
+    partitions {
+        compatible = "fixed-partitions";
+        #address-cells = <1>;
+        #size-cells = <1>;
 
-		/* Sectors 0-1 (2*16 kbytes) for mcuboot */
-                boot_partition: partition@0 {
-                        label = "mcuboot";
-                        reg = <0x00000000 DT_SIZE_K(32)>;
-                };
+        /* Sectors 0-1 (2*16 kbytes) for mcuboot */
+        boot_partition: partition@0 {
+            label = "mcuboot";
+            reg = <0x00000000 DT_SIZE_K(32)>;
+        };
 
-		/* 2-3 (2*16 kbytes) for app storage, enough for NVS storage */
-                storage_partition: partition@8000 {
-                        label = "storage";
-                        reg = <0x00008000 DT_SIZE_K(32)>;
-                };
+        /* 2-3 (2*16 kbytes) for app storage, enough for NVS storage */
+        storage_partition: partition@8000 {
+            label = "storage";
+            reg = <0x00008000 DT_SIZE_K(32)>;
+        };
 
-		/* 4-7 (64 + 3*128 kbytes) are for the application image */
-                slot0_partition: partition@10000 {
-                        label = "image-0";
-                        reg = <0x00010000 DT_SIZE_K(448)>;
-                };
-	};
+        /* 4-7 (64 + 3*128 kbytes) are for the application image */
+        slot0_partition: partition@10000 {
+            label = "image-0";
+            reg = <0x00010000 DT_SIZE_K(448)>;
+        };
+    };
 };
