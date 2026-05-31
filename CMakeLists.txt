@@ -17,6 +17,7 @@ else()
 	endif()
 endif()
 
+target_include_directories(app PRIVATE src)
 
 zephyr_linker_sources(SECTIONS sections-rom.ld)
 zephyr_linker_section_ifdef(CONFIG_HTTP_SERVER
@@ -94,6 +95,14 @@ target_sources_ifdef(CONFIG_APP_WEB_TERMINAL_HOST_SERIAL app PRIVATE
 target_sources_ifdef(CONFIG_PERSISTENT_STORAGE app PRIVATE
 	src/button.c
 	src/fs.c
+)
+
+target_sources_ifdef(CONFIG_FAN_CONTROL app PRIVATE
+	src/fan.c
+)
+
+target_sources_ifdef(CONFIG_POWER_MONITOR app PRIVATE
+	src/power_monitor.c
 )
 
 target_sources_ifdef(CONFIG_REDFISH app PRIVATE

@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Red Hat, LLC
+# Power sequencing and monitoring
+
+config POWER_SEQUENCING
+	bool "Hardware power sequencing state machine"
+	default y
+	depends on $(dt_alias_enabled,power-good)
+	help
+	  Enable multi-step power sequencing (ATX -> DC -> wait power good ->
+	  SOM reset release -> power LED) instead of simple GPIO toggle.
+
+config POWER_GOOD_TIMEOUT_MS
+	int "Power-good wait timeout (ms)"
+	default 2000
+	depends on POWER_SEQUENCING
+
+config POWER_GOOD_POLL_MS
+	int "Power-good poll interval (ms)"
+	default 200
+	depends on POWER_SEQUENCING
+
+config POWER_MONITOR
+	bool "12V rail power monitoring (INA226)"
+	default y
+	depends on SENSOR
+	depends on $(dt_nodelabel_enabled,ina226)

@@ -45,18 +45,19 @@ static void reset_work_fn(struct k_work *work)
 
 static K_WORK_DELAYABLE_DEFINE(reset_work, reset_work_fn);
 
-#define RESET_HOLD_TIME_MS 1000
+#define RESET_HOLD_TIME_MS 10000
 
 static void button_work_fn(struct k_work *work)
 {
 	int val = gpio_pin_get_dt(&button);
 	if (val == 1) {
 		/* Pressed */
+		LOG_INF("Recovery button pressed, hold for %d seconds to factory reset",
+			RESET_HOLD_TIME_MS / 1000);
 		k_work_schedule(&reset_work, K_MSEC(RESET_HOLD_TIME_MS));
 	} else if (val == 0) {
-		/* Released */
+		/* Released before timeout */
 		k_work_cancel_delayable(&reset_work);
-		LOG_INF("Hold button for 1s to clear config and reset");
 	}
 }
 
