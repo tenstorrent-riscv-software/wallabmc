@@ -1019,9 +1019,10 @@ Checksum calculation
        checksum ^= packet[12 + i];
    packet[262] = checksum;
 
-Where ``data_len`` is the value of ``packet[11]``. Since the payload is zero-padded
-to 250 bytes, iterating over all 250 bytes (as OpenSBI does) produces the same
-result as XORing zero bytes is a no-op.
+Where ``data_len`` is the value of ``packet[11]``. Note that ``packet[10]``
+(cmd_result) is deliberately **excluded** from the checksum. Since the payload
+is zero-padded to 250 bytes, iterating over all 250 bytes (as OpenSBI does)
+produces the same result as XORing zero bytes is a no-op.
 
 Command table
 --------------
@@ -1041,44 +1042,44 @@ Command table
      - SoC daemon liveness check. Sent periodically (every 6 seconds via ``SomRestartTimer``). If no response after 5 seconds, SoC is considered down.
    * - 0x01
      - POWER_OFF
-     - SoC->MCU
+     - MCU→SoC
      - 0
-     - Power off the board
+     - Power off the board. SoC daemon calls ``system("poweroff")``.
    * - 0x02
      - REBOOT
-     - ?
-     - ?
-     - Warm reboot
+     - MCU→SoC
+     - 0
+     - Warm reboot. SoC daemon writes ``"warm"`` to ``/sys/kernel/reboot/mode``, then calls ``system("reboot")``.
    * - 0x03
      - READ_BOARD_INFO
-     - ?
-     - 33
-     - Get SoM board identity (same struct as EEPROM)
+     - MCU→SoC→MCU
+     - 33 (reply)
+     - Get SoM board identity. SoC daemon reads 33 bytes from ``/dev/mtd0`` at offset 0xF80000 (SoM info area in SPI flash). Same struct as carrier board EEPROM (magic through manufacturingTestStatus, without MACs or CRC).
    * - 0x04
      - CONTROL_LED
+     - MCU→SoC
      - ?
-     - ?
-     - LED control
+     - LED control. **Unimplemented** in es-bmcd (returns error immediately).
    * - 0x05
      - PVT_INFO
-     - ?
-     - 12
-     - Get CPU temp, NPU temp, and fan speed from SoC
+     - MCU→SoC→MCU
+     - 12 (reply)
+     - Get CPU temp, NPU temp, and fan speed from SoC hwmon sensors. See PVT_INFO response format below.
    * - 0x06
      - BOARD_STATUS
-     - ?
-     - ?
-     - Board power status
+     - MCU→SoC→MCU
+     - 0
+     - Board power status. **No-op** in es-bmcd (returns success with no data).
    * - 0x07
      - POWER_INFO
-     - ?
-     - ?
-     - Detailed power info
+     - MCU→SoC→MCU
+     - 12 (reply)
+     - System power monitoring data from SoC hwmon. See POWER_INFO response format below.
    * - 0x08
      - RESTART
-     - ?
+     - MCU→SoC
      - 0
-     - Cold reboot (power cycle)
+     - Cold reboot (power cycle). SoC daemon writes ``"cold"`` to ``/sys/kernel/reboot/mode``, then calls ``system("reboot")``.
 
 Response handling
 ------------------
@@ -1117,8 +1118,12 @@ bytes of board info in the same format as the EEPROM carrier board record
 The struct matches the first 33 bytes of the carrier board record (magic
 through manufacturingTestStatus), without the MAC addresses or CRC.
 
-**Requires**: SoC must be powered on and running the UART protocol daemon.
-If SoC is off, ``web_cmd_handle`` returns error code 1 immediately.
+**SoC-side source**: The es-bmcd daemon reads these 33 bytes from ``/dev/mtd0``
+(SoC SPI flash) at offset **0xF80000** (15.5 MiB). This is the SoM's own board
+info area, distinct from the carrier board EEPROM on I2C1.
+
+**Requires**: SoC must be powered on and running the UART protocol daemon
+(es-bmcd). If SoC is off, ``web_cmd_handle`` returns error code 1 immediately.
 
 PVT_INFO command (cmd_type=5)
 -------------------------------
@@ -1131,25 +1136,64 @@ Sends cmd_type=5 (PVT_INFO) with data_len=12 to SoC, receives 12 bytes:
    * - Offset
      - Size
      - Type
+     - hwmon source
      - Field
    * - 0
      - 4
-     - int32_t
+     - uint32_t LE
+     - label ``"CPU Core Temperature"`` → ``temp1_input``
      - cpu_temp (millidegrees Celsius)
    * - 4
      - 4
-     - int32_t
+     - uint32_t LE
+     - label ``"npu_vdd"`` → ``temp1_input``
      - npu_temp (millidegrees Celsius)
    * - 8
      - 4
-     - int32_t
+     - uint32_t LE
+     - label ``"FAN"`` → ``fan1_input``
      - fan_speed (RPM)
+
+The SoC daemon (es-bmcd) searches ``/sys/class/hwmon/`` for devices whose
+``label`` file matches, then reads the corresponding sensor file. If a sensor
+is not found, the value defaults to 0xFFFFFFFF (-1).
 
 Original firmware display format::
 
    cpu_temp(Celsius):XX.X  npu_temp(Celsius):XX.X  fan_speed(rpm):XXXX
 
 Conversion: ``degrees = raw / 1000``, ``fraction = raw % 1000``.
+
+POWER_INFO command (cmd_type=7)
+---------------------------------
+
+Sends cmd_type=7 (POWER_INFO) with data_len=12 to SoC, receives 12 bytes of
+system power monitoring data. All three readings come from the hwmon device
+with label ``"sys_power"`` (the INA226 power monitor on the SoC side):
+
+.. list-table::
+   :header-rows: 1
+
+   * - Offset
+     - Size
+     - Type
+     - hwmon source
+     - Field
+   * - 0
+     - 4
+     - uint32_t LE
+     - ``power1_input``
+     - System power (microwatts)
+   * - 4
+     - 4
+     - uint32_t LE
+     - ``curr1_input``
+     - System current (milliamps)
+   * - 8
+     - 4
+     - uint32_t LE
+     - ``in1_input``
+     - System voltage (millivolts)
 
 SoC keepalive mechanism
 ------------------------
@@ -1172,6 +1216,63 @@ To implement SoC communication:
 #. Register shell commands: ``sominfo``, ``temp`` (or integrate into Redfish)
 #. Optionally implement keepalive for SoC liveness monitoring
 #. The SoC-side daemon must be running (part of the SoC's Linux userspace)
+
+SoC-side daemon (es-bmcd)
+--------------------------
+
+The SoC runs a userspace daemon (``es-bmcd``, from the ``es-bmcd`` package) that
+implements the SoC side of the UART4 protocol. Source:
+``es-bmcd/es-bmcd-1.0/usr/bin/es-bmcd`` (RISC-V ELF, not stripped).
+
+**UART configuration**:
+
+- Device: ``/dev/ttyS2`` (SoC UART2, confirming the MCU UART4 ↔ SoC UART2 link)
+- Baud rate: 115200, 8N1, raw mode (no echo, no line editing, no flow control)
+
+**Architecture**::
+
+   main()
+     ├── init_uart()             → opens /dev/ttyS2 at 115200 8N1 raw
+     ├── ring_init()             → 256-entry × 267-byte ring buffer
+     ├── pthread_create(uart_read_thread)
+     │     └── loop: read_uart() → ring_push()
+     │           select() with 100ms timeout for continuation bytes
+     └── pthread_create(message_process_thread)
+           └── loop: ring_pop() → validate → execute_command() → send_uart()
+                 50ms poll interval (usleep(50000))
+
+**Message validation order**:
+
+#. Verify header magic (32-bit LE word at offset 0-3 == 0xA55AAA55)
+#. Verify tail magic (32-bit LE word at offset 263-266 == 0xBDBABDBA)
+#. Verify XOR checksum at offset 262
+#. On any validation failure: log error, hex-dump all 267 bytes, send error reply
+
+**Reply construction**:
+
+#. Set ``msg[8] = 0x02`` (REPLY)
+#. Call ``execute_command(msg)``, which dispatches on ``msg[9]`` (cmd_type) via
+   a 9-entry jump table (cmd 0x00-0x08, anything >8 rejected as unknown)
+#. Set ``msg[10]`` = return value from ``execute_command`` (0=success, 1=error)
+#. ``msg[9]`` (cmd_type) and ``msg[11]`` (data_len) are unchanged from the request
+#. Recalculate XOR checksum and store at ``msg[262]``
+#. Write all 267 bytes to UART
+
+**Command handler notes**:
+
+- **cmd 0x00 (Keepalive)**: Not actually handled — falls through to "Unknown
+  command type: 0" log and returns error (1). The MCU doesn't care about the
+  reply content, only that *a* reply arrives within the timeout.
+- **cmd 0x04 (CONTROL_LED)**: Unimplemented stub, returns error (1).
+- **cmd 0x06 (BOARD_STATUS)**: Returns success (0) with no data.
+
+**Process management**:
+
+- Daemonizes via ``fork()`` + ``setsid()``
+- Parent watches for ``SIGCHLD`` and re-forks (auto-restart on crash)
+- Startup script (``es-bmcd.sh``) pins ``/dev/ttyS2`` IRQ to CPUs 1-3
+  (``smp_affinity=e``) to avoid loading CPU 0
+- Systemd service type: ``forking``
 
 Original firmware CLI command reference
 =========================================
