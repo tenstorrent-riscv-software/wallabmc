@@ -343,9 +343,10 @@ config PERSISTENT_STORAGE
 	select FLASH
 	select FLASH_MAP
 	# select FLASH_SHELL if SHELL # ~4kB flash
-	# Writing internal flash that is used for XIP requires
-	# that the flash driver is relocated into RAM.
-	select CODE_DATA_RELOCATION_SRAM
+	# STM32 internal flash is also XIP, so the flash driver has to be
+	# relocated into RAM to write it. ESP32's flash driver disables
+	# the XIP cache internally, so no relocation is needed there.
+	select CODE_DATA_RELOCATION_SRAM if SOC_FLASH_STM32
 	# XXX: May need to enable these, or disable IRQs in the flash
 	# erase and program functions while flash is being written.
 	# select SRAM_VECTOR_TABLE
