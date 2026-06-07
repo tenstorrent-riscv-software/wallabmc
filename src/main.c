@@ -65,6 +65,7 @@ static void print_banner(void)
 
 FUNC_NORETURN int bmc_reboot(void)
 {
+	wifi_shutdown();
 	fs_exit();
 
 	LOG_WRN("Rebooting BMC");

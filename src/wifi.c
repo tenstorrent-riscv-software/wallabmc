@@ -19,6 +19,7 @@ LOG_MODULE_REGISTER(wallabmc_wifi, LOG_LEVEL_INF);
 			  NET_EVENT_WIFI_DISCONNECT_RESULT)
 
 static struct net_mgmt_event_callback wifi_cb;
+static K_SEM_DEFINE(wifi_disconnected_sem, 0, 1);
 
 static void wifi_event_handler(struct net_mgmt_event_callback *cb,
 			       uint64_t mgmt_event,
@@ -38,6 +39,7 @@ static void wifi_event_handler(struct net_mgmt_event_callback *cb,
 		break;
 	case NET_EVENT_WIFI_DISCONNECT_RESULT:
 		LOG_WRN("Wi-Fi disconnected");
+		k_sem_give(&wifi_disconnected_sem);
 		break;
 	default:
 		break;
@@ -79,4 +81,34 @@ int wifi_connect_init(void)
 
 	LOG_INF("Wi-Fi connect requested; waiting for association...");
 	return 0;
+}
+
+void wifi_shutdown(void)
+{
+	struct net_if *iface = net_if_get_first_wifi();
+	int rc;
+
+	if (!iface)
+		return;
+
+	/*
+	 * sys_reboot() on ESP32 leaves the Wi-Fi MAC/AP-side association in
+	 * a state where the next boot sometimes fails to re-associate (board
+	 * stays unreachable, no DHCP). Disassociate, wait for the driver to
+	 * confirm via NET_EVENT_WIFI_DISCONNECT_RESULT, then take the iface
+	 * down so the AP drops us cleanly before the reset.
+	 */
+	k_sem_reset(&wifi_disconnected_sem);
+	rc = net_mgmt(NET_REQUEST_WIFI_DISCONNECT, iface, NULL, 0);
+	if (rc && rc != -EALREADY) {
+		LOG_WRN("Wi-Fi disconnect request failed (rc=%d)", rc);
+	} else if (rc == 0) {
+		(void)k_sem_take(&wifi_disconnected_sem, K_MSEC(1000));
+	}
+
+	rc = net_if_down(iface);
+	if (rc && rc != -EALREADY) {
+		LOG_WRN("Wi-Fi iface down failed (rc=%d)", rc);
+	}
+	k_msleep(200);
 }
