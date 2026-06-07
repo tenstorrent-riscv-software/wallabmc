@@ -213,10 +213,18 @@ static int cmd_power_force_off(const struct shell *sh, size_t argc, char **argv)
 	return power_force_off();
 }
 
+static int cmd_power_force_restart(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+	return power_reset();
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_power_cmds,
-	SHELL_CMD(on,        NULL, "Power on (short press).",  cmd_power_on),
-	SHELL_CMD(off,       NULL, "Power off (short press).", cmd_power_off),
-	SHELL_CMD(force-off, NULL, "Force off (long press).",  cmd_power_force_off),
+	SHELL_CMD(on,            NULL, "Power on (short press).",            cmd_power_on),
+	SHELL_CMD(off,           NULL, "Power off (short press).",           cmd_power_off),
+	SHELL_CMD(force-off,     NULL, "Force off (long press).",            cmd_power_force_off),
+	SHELL_CMD(force-restart, NULL, "Force restart (1 s low pulse).",     cmd_power_force_restart),
 	SHELL_SUBCMD_SET_END
 );
 
