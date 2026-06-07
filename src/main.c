@@ -17,6 +17,7 @@ LOG_MODULE_REGISTER(wallabmc, LOG_LEVEL_INF);
 #include "config.h"
 #include "button.h"
 #include "net.h"
+#include "wifi.h"
 #include "http.h"
 #include "power.h"
 #include "rtc.h"
@@ -208,9 +209,62 @@ static int cmd_bmc_poweroff(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
+#ifdef CONFIG_APP_WIFI
+static int cmd_wifi_connect(const struct shell *sh, size_t argc, char **argv)
+{
+	const char *ssid = NULL;
+	const char *password = NULL;
+	int rc;
+
+	if (argc >= 2)
+		ssid = argv[1];
+	if (argc >= 3)
+		password = argv[2];
+
+	if (!ssid)
+		ssid = config_bmc_wifi_ssid();
+	if (!password)
+		password = config_bmc_wifi_password();
+
+	rc = wifi_connect(ssid, password);
+	if (rc) {
+		shell_error(sh, "Wi-Fi connect failed (err=%d)", rc);
+		return rc;
+	}
+
+	shell_info(sh, "Wi-Fi connecting to %s", ssid);
+
+	return 0;
+}
+
+static int cmd_wifi_disconnect(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	wifi_disconnect();
+
+	shell_info(sh, "Wi-Fi disconnect");
+
+	return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_bmc_wifi_cmds,
+	SHELL_CMD_ARG(connect,	NULL,
+		      "Connect to a Wi-Fi network optionally overriding default credentials.\n"
+		      "Usage: wifi connect [ssid] [password]",
+		      cmd_wifi_connect, 1, 2),
+	SHELL_CMD(disconnect,	NULL, "Disconnect from Wi-Fi AP.", cmd_wifi_disconnect),
+	SHELL_SUBCMD_SET_END
+);
+#endif /* CONFIG_APP_WIFI */
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_bmc_cmds,
 	SHELL_CMD(reboot,	NULL, "Reboot BMC.", cmd_bmc_reboot),
 	SHELL_CMD(poweroff,	NULL, "Power off BMC.", cmd_bmc_poweroff),
+#ifdef CONFIG_APP_WIFI
+	SHELL_CMD(wifi,		&sub_bmc_wifi_cmds, "Wi-Fi control commands.", NULL),
+#endif
 	SHELL_SUBCMD_SET_END
 );
 
@@ -321,7 +375,7 @@ int main(void)
 	LOG_DBG("Network init");
 	if (net_init() < 0) {
 		LOG_ERR("Network init failed");
-		return -1;
+		/* Continue -- shell stays up so the user can `wifi connect`. */
 	}
 
 	LOG_DBG("Power init");
