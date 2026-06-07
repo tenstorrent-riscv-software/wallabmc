@@ -100,7 +100,8 @@ static ssize_t __config_write(uint16_t id, const void *buf, size_t size)
 {
 	if (config_use_fs)
 		return fs_key_write(id, buf, size);
-	return -ENODEV;
+	/* No persistent storage; caller's RAM copy is the only source of truth. */
+	return size;
 }
 
 #define config_read(id, var)				\
