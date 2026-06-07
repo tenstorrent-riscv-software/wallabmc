@@ -27,6 +27,7 @@ WallaBMC currently supports the following hardware platforms:
 | --- | --- | --- |
 | **SiFive HiFive Premier P550 MCU** | hifive_premier_p550_mcu | RISC-V based platform |
 | **STM32 Nucleo F767ZI** | nucleo_f767zi | ARM Cortex-M7 development board (standalone, no host CPU) |
+| **Seeed Studio XIAO ESP32-C6** | xiao_esp32c6/esp32c6/hpcore | RISC-V, Wi-Fi 6, on a 21×17.5 mm board with USB-C; BMC console over USB Serial/JTAG (see [below](#seeed-xiao-esp32-c6)) |
 | **qemu** | qemu_cortex_m3 | see [run_qemu_ci.py](scripts/run_qemu_ci.py) |
 
 ### Screenshot
@@ -86,6 +87,7 @@ board specific documentation for details.
 
 [Nucleo F767ZI](boards/nucleo_f767zi.md)
 [P550 MCU](boards/hifive_premier_p550_mcu.md)
+[XIAO ESP32-C6](boards/xiao_esp32c6_hpcore.md)
 [QEMU](boards/qemu_cortex_m3.md)
 
 ## Running
