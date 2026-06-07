@@ -26,4 +26,8 @@ bool config_host_auto_poweron(void);
 int config_host_auto_poweron_set(bool on);
 const char *config_bmc_admin_password(void);
 bool config_bmc_https_psk(const char **psk, int *psk_len);
+const char *config_wifi_ssid(void);
+const char *config_wifi_password(void);
+int config_wifi_set(const char *ssid, const char *password);
+int config_wifi_clear(void);
 #endif
