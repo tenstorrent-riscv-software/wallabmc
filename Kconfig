@@ -386,12 +386,20 @@ config APP_HOST_POWER_FORCE_OFF_MS
 	depends on APP_HOST_POWER_PULSE
 
 config APP_WIFI
-	bool "Connect to Wi-Fi at boot"
+	bool "Connect to Wi-Fi at boot from BMC config"
 	default y if WIFI
 	depends on WIFI
-	select WIFI_CREDENTIALS
-	select WIFI_CREDENTIALS_STATIC
 	select NET_L2_WIFI_MGMT
+	help
+	  Bring Wi-Fi up at boot using the SSID and password the operator
+	  set via the `wifi connect` shell command (persisted in NVS). To
+	  bake an SSID into the image as a fallback for first-boot
+	  bring-up without console access, also pass
+	  -DCONFIG_WIFI_CREDENTIALS=y
+	  -DCONFIG_WIFI_CREDENTIALS_STATIC=y
+	  -DCONFIG_WIFI_CREDENTIALS_STATIC_SSID='"..."'
+	  -DCONFIG_WIFI_CREDENTIALS_STATIC_PASSWORD='"..."'
+	  on the cmake line.
 
 config JTAG
 	bool "JTAG support"

@@ -129,13 +129,21 @@ int wifi_connect_init(void)
 		return 0;
 	}
 
+#if defined(CONFIG_WIFI_CREDENTIALS_CONNECT_STORED)
+	/*
+	 * NVS has no SSID; fall back to whatever is in the wifi_credentials
+	 * store (typically the compile-time CONFIG_WIFI_CREDENTIALS_STATIC
+	 * entry baked into the image).
+	 */
 	rc = net_mgmt(NET_REQUEST_WIFI_CONNECT_STORED, iface, NULL, 0);
 	if (rc) {
 		LOG_ERR("Wi-Fi connect-stored request failed (rc=%d)", rc);
 		return rc;
 	}
-
 	LOG_INF("Wi-Fi connect requested; waiting for association...");
+#else
+	LOG_WRN("No Wi-Fi credentials configured -- use `wifi connect <ssid> <password>` to set them");
+#endif
 	return 0;
 }
 
