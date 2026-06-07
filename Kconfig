@@ -385,6 +385,14 @@ config APP_HOST_POWER_FORCE_OFF_MS
 	default 6000
 	depends on APP_HOST_POWER_PULSE
 
+config APP_WIFI
+	bool "Connect to Wi-Fi at boot"
+	default y if WIFI
+	depends on WIFI
+	select WIFI_CREDENTIALS
+	select WIFI_CREDENTIALS_STATIC
+	select NET_L2_WIFI_MGMT
+
 config JTAG
 	bool "JTAG support"
 	depends on $(dt_path_enabled,/jtag)
