@@ -1,0 +1,87 @@
+/*
+ * SPDX-FileCopyrightText: © 2025-2026 Tenstorrent USA, Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Seeed Studio XIAO ESP32-C6 port.
+ *
+ * The BMC console / shell is the SoC's built-in USB Serial/JTAG (the
+ * XIAO's USB-C connector); the board DTS already routes
+ * zephyr,console + zephyr,shell-uart there. The host serial bridge
+ * uses UART1 on D0 (GPIO0) / D3 (GPIO21) — both pads are otherwise
+ * unused on the XIAO connector and stay clear of the default I2C
+ * (D4/D5) and SPI (D8/D9/D10) bus pads.
+ *
+ *   D0 = GPIO0  = UART1 TX (out to host RX)
+ *   D3 = GPIO21 = UART1 RX (in from host TX)
+ *   D1 = GPIO1  = PWRBTN#   (open-drain, active-low)
+ *   D2 = GPIO2  = SYSRESET# (open-drain, active-low)
+ *   Common GND with the host board.
+ *
+ * /jtag node omitted -> CONFIG_JTAG auto-disabled via dt_path_enabled().
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/pinctrl/esp-pinctrl-common.h>
+#include <zephyr/dt-bindings/pinctrl/esp32c6-pinctrl.h>
+#include <zephyr/dt-bindings/pinctrl/esp32c6-gpio-sigmap.h>
+
+/ {
+	host_power {
+		compatible = "gpio-leds";
+
+		/*
+		 * Host power button and system reset. Open-drain + active-low:
+		 * the ESP32 only ever sinks current; the un-asserted level is
+		 * set by the host (e.g. K3 internal pull-up) or, with no host
+		 * connected, by the ESP32 internal pull-up that GPIO_PULL_UP
+		 * enables here -- so the line idles high either way, including
+		 * for bench probing with an oscilloscope. host_pwrbtn is pulsed
+		 * by power.c when CONFIG_APP_HOST_POWER_PULSE=y. host_sysreset
+		 * is pulsed by `reset` / `power force-restart` (power_reset())
+		 * for ~1 s.
+		 */
+		host_pwrbtn: host_pwrbtn {
+			gpios = <&gpio0 1 (GPIO_ACTIVE_LOW | GPIO_OPEN_DRAIN | GPIO_PULL_UP)>;
+		};
+		host_sysreset: host_sysreset {
+			gpios = <&gpio0 2 (GPIO_ACTIVE_LOW | GPIO_OPEN_DRAIN | GPIO_PULL_UP)>;
+		};
+	};
+
+	aliases {
+		host-console-uart = &uart1;
+		power-gpio-1 = &host_pwrbtn;
+		reset-gpio-1 = &host_sysreset;
+		status-led = &yellow_led;
+	};
+};
+
+&pinctrl {
+	uart1_default: uart1_default {
+		group1 {
+			pinmux = <UART1_TX_GPIO0>;
+			output-high;
+			drive-push-pull;
+		};
+		group2 {
+			pinmux = <UART1_RX_GPIO21>;
+			bias-pull-up;
+		};
+	};
+};
+
+&dma {
+	status = "okay";
+};
+
+&uart1 {
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&uart1_default>;
+	pinctrl-names = "default";
+	/* GDMA channels for async TX / RX. Channels 2,3 are reserved by
+	 * i2s in the SoC DTS (i2s itself is disabled in this build).
+	 */
+	dmas = <&dma 0>, <&dma 1>;
+	dma-names = "tx", "rx";
+};
