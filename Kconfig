@@ -421,6 +421,12 @@ config APP_WIFI
 	  SSID and password can be changed and persisted in nonvolatile
 	  configuration.
 
+config APP_WIFI_DISABLE_POWER_SAVING
+	bool "Wi-Fi disable power saving"
+	depends on APP_WIFI
+	help
+	  Disable WIFI Power Saving, can be set by board config.
+
 config DEFAULT_WIFI_SSID
 	string "Default WiFi SSID (blank for none)"
 	depends on APP_WIFI

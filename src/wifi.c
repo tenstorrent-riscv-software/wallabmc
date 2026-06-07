@@ -164,6 +164,16 @@ int wifi_init(void)
 				     WIFI_MGMT_EVENTS);
 	net_mgmt_add_event_callback(&wifi_cb);
 
+	if (IS_ENABLED(CONFIG_APP_WIFI_DISABLE_POWER_SAVING)) {
+		struct wifi_ps_params ps = {
+			.enabled = WIFI_PS_DISABLED,
+		};
+		rc = net_mgmt(NET_REQUEST_WIFI_PS, iface, &ps, sizeof(ps));
+		if (rc) {
+			LOG_WRN("Could not disable Wi-Fi power save (rc=%d)", rc);
+		}
+	}
+
 	if (config_bmc_wifi_enable())
 		return wifi_connect(config_bmc_wifi_ssid(), config_bmc_wifi_password());
 
