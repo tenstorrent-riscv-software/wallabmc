@@ -47,6 +47,9 @@ static void wifi_event_handler(struct net_mgmt_event_callback *cb,
 int wifi_connect_init(void)
 {
 	struct net_if *iface = net_if_get_first_wifi();
+	struct wifi_ps_params ps = {
+		.enabled = WIFI_PS_DISABLED,
+	};
 	int rc;
 
 	if (!iface) {
@@ -57,6 +60,16 @@ int wifi_connect_init(void)
 	net_mgmt_init_event_callback(&wifi_cb, wifi_event_handler,
 				     WIFI_MGMT_EVENTS);
 	net_mgmt_add_event_callback(&wifi_cb);
+
+	/*
+	 * The ESP32 driver enables WIFI_PS_MAX_MODEM by default, which causes
+	 * 100+ ms RX latency spikes and dropped frames under bursty HTTP load.
+	 * The BMC is mains-powered, so trade the power saving for reliability.
+	 */
+	rc = net_mgmt(NET_REQUEST_WIFI_PS, iface, &ps, sizeof(ps));
+	if (rc) {
+		LOG_WRN("Could not disable Wi-Fi power save (rc=%d)", rc);
+	}
 
 	rc = net_mgmt(NET_REQUEST_WIFI_CONNECT_STORED, iface, NULL, 0);
 	if (rc) {
