@@ -15,6 +15,7 @@
 LOG_MODULE_REGISTER(wallabmc_power);
 
 #include "config.h"
+#include "power.h"
 
 #define GPIO_POWER_1 DT_ALIAS(power_gpio_1)
 #define GPIO_POWER_2 DT_ALIAS(power_gpio_2)
@@ -37,6 +38,79 @@ bool power_get_state(void)
 	return system_power_state;
 }
 
+#ifdef CONFIG_APP_HOST_POWER_PULSE
+static int power_pulse(int ms)
+{
+	int i, ret;
+
+	for (i = 0; i < ARRAY_SIZE(power_gpios); i++) {
+		ret = gpio_pin_set_dt(&power_gpios[i], 1);
+		if (ret < 0) {
+			LOG_ERR("Could not assert power GPIO %d", i);
+			return -1;
+		}
+	}
+
+	k_msleep(ms);
+
+	for (i = 0; i < ARRAY_SIZE(power_gpios); i++) {
+		ret = gpio_pin_set_dt(&power_gpios[i], 0);
+		if (ret < 0) {
+			LOG_ERR("Could not release power GPIO %d", i);
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+static int power_on(void)
+{
+	int ret;
+
+	if (system_power_state) {
+		LOG_INF("Host already on; skipping press");
+		return 0;
+	}
+
+	ret = power_pulse(CONFIG_APP_HOST_POWER_PULSE_MS);
+	if (ret < 0)
+		return ret;
+
+	system_power_state = true;
+	return 0;
+}
+
+static int power_off(void)
+{
+	int ret;
+
+	if (!system_power_state) {
+		LOG_INF("Host already off; skipping press");
+		return 0;
+	}
+
+	ret = power_pulse(CONFIG_APP_HOST_POWER_PULSE_MS);
+	if (ret < 0)
+		return ret;
+
+	system_power_state = false;
+	return 0;
+}
+
+int power_force_off(void)
+{
+	int ret;
+
+	LOG_WRN("Forcing host off (long press)");
+	ret = power_pulse(CONFIG_APP_HOST_POWER_FORCE_OFF_MS);
+	if (ret < 0)
+		return ret;
+
+	system_power_state = false;
+	return 0;
+}
+#else /* !CONFIG_APP_HOST_POWER_PULSE */
 static int power_on(void)
 {
 	int i, ret;
@@ -70,6 +144,12 @@ static int power_off(void)
 
 	return 0;
 }
+
+int power_force_off(void)
+{
+	return power_off();
+}
+#endif /* CONFIG_APP_HOST_POWER_PULSE */
 
 void power_set_state(bool on)
 {
@@ -126,9 +206,17 @@ static int cmd_power_off(const struct shell *sh, size_t argc, char **argv)
 	return power_off();
 }
 
+static int cmd_power_force_off(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+	return power_force_off();
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_power_cmds,
-	SHELL_CMD(on,    NULL, "Power on.", cmd_power_on),
-	SHELL_CMD(off,   NULL, "Power off.", cmd_power_off),
+	SHELL_CMD(on,        NULL, "Power on (short press).",  cmd_power_on),
+	SHELL_CMD(off,       NULL, "Power off (short press).", cmd_power_off),
+	SHELL_CMD(force-off, NULL, "Force off (long press).",  cmd_power_force_off),
 	SHELL_SUBCMD_SET_END
 );
 
@@ -155,15 +243,14 @@ int reset_init(void)
 		return -1;
 	}
 
-	ret = gpio_pin_configure_dt(&gpio_reset, GPIO_OUTPUT_ACTIVE);
+	/*
+	 * Start inactive so the pin is hi-Z (open-drain) / driven inactive
+	 * at boot. GPIO_OUTPUT_ACTIVE would briefly assert reset to the host
+	 * every time the BMC starts up.
+	 */
+	ret = gpio_pin_configure_dt(&gpio_reset, GPIO_OUTPUT_INACTIVE);
 	if (ret < 0) {
 		LOG_INF("Could not configure reset GPIO\n");
-		return -1;
-	}
-
-	ret = gpio_pin_set_dt(&gpio_reset, 0);
-	if (ret < 0) {
-		LOG_INF("Could not toggle reset GPIO\n");
 		return -1;
 	}
 
