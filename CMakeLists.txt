@@ -194,6 +194,8 @@ if(CONFIG_PERSISTENT_STORAGE)
     include(${ZEPHYR_BASE}/cmake/modules/extensions.cmake)
     FILE(GLOB flash_driver ${ZEPHYR_BASE}/drivers/flash/flash_stm32*.c)
     zephyr_code_relocate(FILES ${flash_driver} LOCATION RAM)
+  elseif(CONFIG_SOC_FLASH_ESP32)
+    # ESP32 flash driver disables the XIP cache internally; no relocation needed.
   else()
     message(FATAL_ERROR "flash storage handling is not defined for this platform")
   endif()
