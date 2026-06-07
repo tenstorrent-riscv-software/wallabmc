@@ -199,3 +199,16 @@ int net_init(void)
 
 	return 0;
 }
+
+void net_exit(void)
+{
+	struct net_if *iface = net_if_get_default();
+	int rc;
+
+	wifi_exit();
+
+	rc = net_if_down(iface);
+	if (rc && rc != -EALREADY) {
+		LOG_WRN("iface down failed (rc=%d)", rc);
+	}
+}

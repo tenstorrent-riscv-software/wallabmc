@@ -179,3 +179,20 @@ int wifi_init(void)
 
 	return 0;
 }
+
+void wifi_exit(void)
+{
+	struct net_if *iface = net_if_get_first_wifi();
+	int rc;
+
+	if (!iface)
+		return;
+
+	wifi_disconnect();
+
+	rc = net_if_down(iface);
+	if (rc && rc != -EALREADY) {
+		LOG_WRN("Wi-Fi iface down failed (rc=%d)", rc);
+	}
+	k_msleep(200);
+}

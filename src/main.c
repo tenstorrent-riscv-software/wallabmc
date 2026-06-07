@@ -159,6 +159,7 @@ static int status_led_init(void)
 #endif /* DT_NODE_HAS_STATUS_OKAY(STATUS_LED) */
 FUNC_NORETURN int bmc_reboot(void)
 {
+	net_exit();
 	fs_exit();
 
 	LOG_WRN("Rebooting BMC");
