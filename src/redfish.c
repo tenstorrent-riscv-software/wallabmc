@@ -1597,7 +1597,7 @@ static int system_reset_post_handler(struct http_resource_user_data *user_data)
 	if (strcmp(payload.reset_type, "On") == 0) {
 		ret = power_set_state(true);
 	} else if (strcmp(payload.reset_type, "ForceOff") == 0) {
-		ret = power_set_state(false);
+		ret = power_force_off();
 	} else if (strcmp(payload.reset_type, "PowerCycle") == 0) {
 		ret = power_cycle();
 	} else if (strcmp(payload.reset_type, "ForceRestart") == 0) {

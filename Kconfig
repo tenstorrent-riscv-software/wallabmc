@@ -365,6 +365,33 @@ config POWEROFF
 	bool
 	default y if HAS_POWEROFF
 
+config APP_HOST_POWER_PULSE
+	bool "Host power pin uses momentary-button (pulse) semantics"
+	default n
+	help
+	  When set, `power on` / `power off` / `power force-off` pulse the
+	  host power GPIO instead of holding it at a sustained level. Use
+	  for boards with an ATX-style momentary power button input.
+
+	  Without this, the GPIO is driven to a sustained level (the
+	  legacy nucleo LED-as-power-stand-in behaviour).
+
+config APP_HOST_POWER_PULSE_MS
+	int "Short-press duration for power on/off (ms)"
+	default 200
+	depends on APP_HOST_POWER_PULSE
+
+config APP_HOST_POWER_FORCE_OFF_MS
+	int "Long-press duration for power force-off (ms)"
+	default 6000
+	depends on APP_HOST_POWER_PULSE
+	help
+	  The thread that asked for the force-off sleeps through the
+	  press; for Redfish that is the HTTP server thread. Keep this
+	  plus the 2 s PowerCycle gap below
+	  HTTP_SERVER_CLIENT_INACTIVITY_TIMEOUT (default 10 s) or other
+	  HTTP clients are dropped while the button is held.
+
 config JTAG
 	bool "JTAG support"
 	depends on $(dt_path_enabled,/jtag)
