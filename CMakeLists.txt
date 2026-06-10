@@ -7,9 +7,11 @@ cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(wallabmc)
 
-if(BOARD STREQUAL "qemu_cortex_m3")
+# Boards that use their SoC's native bootloader and skip mcuboot/sysbuild.
+set(NO_SYSBUILD_BOARDS "qemu_cortex_m3" "xiao_esp32c6")
+if(BOARD IN_LIST NO_SYSBUILD_BOARDS)
 	if(SYSBUILD)
-		message(FATAL_ERROR "qemu_cortex_m3 must NOT be built with sysbuild (e.g., no --sysbuild argument)")
+		message(FATAL_ERROR "${BOARD} must NOT be built with sysbuild (e.g., no --sysbuild argument)")
 	endif()
 else()
 	if(NOT SYSBUILD)
@@ -65,6 +67,10 @@ target_sources_ifdef(CONFIG_APP_SENSORS app PRIVATE
 
 target_sources_ifdef(CONFIG_APP_NTP app PRIVATE
 	src/ntp.c
+)
+
+target_sources_ifdef(CONFIG_APP_WIFI app PRIVATE
+	src/wifi.c
 )
 
 target_sources_ifdef(CONFIG_HTTP_SERVER app PRIVATE
@@ -194,6 +200,8 @@ if(CONFIG_PERSISTENT_STORAGE)
     include(${ZEPHYR_BASE}/cmake/modules/extensions.cmake)
     FILE(GLOB flash_driver ${ZEPHYR_BASE}/drivers/flash/flash_stm32*.c)
     zephyr_code_relocate(FILES ${flash_driver} LOCATION RAM)
+  elseif(CONFIG_SOC_FLASH_ESP32)
+    # ESP32 flash driver disables the XIP cache internally; no relocation needed.
   else()
     message(FATAL_ERROR "flash storage handling is not defined for this platform")
   endif()

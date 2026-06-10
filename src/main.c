@@ -16,6 +16,7 @@ LOG_MODULE_REGISTER(wallabmc, LOG_LEVEL_INF);
 #include "config.h"
 #include "button.h"
 #include "net.h"
+#include "wifi.h"
 #include "http.h"
 #include "power.h"
 #include "rtc.h"
@@ -64,6 +65,7 @@ static void print_banner(void)
 
 FUNC_NORETURN int bmc_reboot(void)
 {
+	wifi_shutdown();
 	fs_exit();
 
 	LOG_WRN("Rebooting BMC");
@@ -228,6 +230,12 @@ int main(void)
 	if (net_init() < 0) {
 		LOG_ERR("Network init failed");
 		return -1;
+	}
+
+	LOG_DBG("Wi-Fi connect init");
+	if (wifi_connect_init() < 0) {
+		LOG_ERR("Wi-Fi connect init failed");
+		/* Continue */
 	}
 
 	LOG_DBG("Power init");

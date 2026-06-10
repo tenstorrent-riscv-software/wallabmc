@@ -30,7 +30,15 @@ jobs:
 
     strategy:
       matrix:
-        board: [nucleo_f767zi, hifive_premier_p550_mcu, qemu_cortex_m3]
+        include:
+          - board: nucleo_f767zi
+            name: nucleo_f767zi
+          - board: hifive_premier_p550_mcu
+            name: hifive_premier_p550_mcu
+          - board: qemu_cortex_m3
+            name: qemu_cortex_m3
+          - board: xiao_esp32c6/esp32c6/hpcore
+            name: xiao_esp32c6
 
     env:
       CMAKE_PREFIX_PATH: /opt/toolchains
@@ -78,8 +86,13 @@ jobs:
           # Update modules (fetches Zephyr kernel, HAL_STM32, etc.)
           west update --path-cache /repo-cache/zephyrproject --narrow -o=--depth=10000 -o=--tags
 
+      - name: Fetch Espressif Blobs
+        if: ${{ matrix.name == 'xiao_esp32c6' }}
+        working-directory: workspace
+        run: west blobs fetch hal_espressif
+
       - name: Build WallaBMC (sysbuild boards)
-        if: ${{ matrix.board != 'qemu_cortex_m3' }}
+        if: ${{ matrix.name != 'qemu_cortex_m3' && matrix.name != 'xiao_esp32c6' }}
         working-directory: workspace
         run: |
           west build --sysbuild -p always -b $BOARD ../wallabmc
@@ -92,18 +105,19 @@ jobs:
           mv build/wallabmc/zephyr/zephyr.signed.hex build/wallabmc.signed.hex
           mv build/wallabmc/zephyr/zephyr.signed.bin build/wallabmc.signed.bin
 
-      - name: Build WallaBMC (QEMU image)
-        if: ${{ matrix.board == 'qemu_cortex_m3' }}
+      - name: Build WallaBMC (no-sysbuild boards)
+        if: ${{ matrix.name == 'qemu_cortex_m3' || matrix.name == 'xiao_esp32c6' }}
         working-directory: workspace
         run: |
-          # QEMU build does not do sysbuild
+          # qemu_cortex_m3 and xiao_esp32c6 are listed in NO_SYSBUILD_BOARDS;
+          # xiao uses Espressif Simple Boot rather than MCUboot.
           west build -p always -b $BOARD ../wallabmc
 
-      - name: Upload Board Firmware
-        if: ${{ matrix.board != 'qemu_cortex_m3' }}
+      - name: Upload Sysbuild Firmware
+        if: ${{ matrix.name != 'qemu_cortex_m3' && matrix.name != 'xiao_esp32c6' }}
         uses: actions/upload-artifact@v6
         with:
-          name: wallabmc-firmware-${{ matrix.board }}
+          name: wallabmc-firmware-${{ matrix.name }}
           path: |
             workspace/build/mcuboot.hex
             workspace/build/mcuboot.bin
@@ -114,11 +128,11 @@ jobs:
             workspace/build/wallabmc.signed.hex
             workspace/build/wallabmc.signed.bin
 
-      - name: Upload QEMU Firmware
-        if: ${{ matrix.board == 'qemu_cortex_m3' }}
+      - name: Upload No-Sysbuild Firmware
+        if: ${{ matrix.name == 'qemu_cortex_m3' || matrix.name == 'xiao_esp32c6' }}
         uses: actions/upload-artifact@v6
         with:
-          name: wallabmc-firmware-${{ matrix.board }}
+          name: wallabmc-firmware-${{ matrix.name }}
           path: |
             workspace/build/zephyr/zephyr.bin
             workspace/build/zephyr/zephyr.elf

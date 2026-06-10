@@ -343,9 +343,10 @@ config PERSISTENT_STORAGE
 	select FLASH
 	select FLASH_MAP
 	# select FLASH_SHELL if SHELL # ~4kB flash
-	# Writing internal flash that is used for XIP requires
-	# that the flash driver is relocated into RAM.
-	select CODE_DATA_RELOCATION_SRAM
+	# STM32 internal flash is also XIP, so the flash driver has to be
+	# relocated into RAM to write it. ESP32's flash driver disables
+	# the XIP cache internally, so no relocation is needed there.
+	select CODE_DATA_RELOCATION_SRAM if SOC_FLASH_STM32
 	# XXX: May need to enable these, or disable IRQs in the flash
 	# erase and program functions while flash is being written.
 	# select SRAM_VECTOR_TABLE
@@ -362,6 +363,43 @@ config REBOOT
 config POWEROFF
 	bool
 	default y if HAS_POWEROFF
+
+config APP_HOST_POWER_PULSE
+	bool "Host power pin uses momentary-button (pulse) semantics"
+	default n
+	help
+	  When set, `power on` / `power off` / `power force-off` pulse the
+	  host power GPIO instead of holding it at a sustained level. Use
+	  for boards with an ATX-style momentary power button input.
+
+	  Without this, the GPIO is driven to a sustained level (the
+	  legacy nucleo LED-as-power-stand-in behaviour).
+
+config APP_HOST_POWER_PULSE_MS
+	int "Short-press duration for power on/off (ms)"
+	default 200
+	depends on APP_HOST_POWER_PULSE
+
+config APP_HOST_POWER_FORCE_OFF_MS
+	int "Long-press duration for power force-off (ms)"
+	default 6000
+	depends on APP_HOST_POWER_PULSE
+
+config APP_WIFI
+	bool "Connect to Wi-Fi at boot from BMC config"
+	default y if WIFI
+	depends on WIFI
+	select NET_L2_WIFI_MGMT
+	help
+	  Bring Wi-Fi up at boot using the SSID and password the operator
+	  set via the `wifi connect` shell command (persisted in NVS). To
+	  bake an SSID into the image as a fallback for first-boot
+	  bring-up without console access, also pass
+	  -DCONFIG_WIFI_CREDENTIALS=y
+	  -DCONFIG_WIFI_CREDENTIALS_STATIC=y
+	  -DCONFIG_WIFI_CREDENTIALS_STATIC_SSID='"..."'
+	  -DCONFIG_WIFI_CREDENTIALS_STATIC_PASSWORD='"..."'
+	  on the cmake line.
 
 config JTAG
 	bool "JTAG support"
@@ -392,8 +430,8 @@ config APP_CONSOLE_LOGGER
 	bool "Console logger (capture host console uart)"
 	default y
 	select SERIAL
-	select SERIAL_SUPPORT_ASYNC
-	select UART_ASYNC_API
+	select SERIAL_SUPPORT_INTERRUPT
+	select UART_INTERRUPT_DRIVEN
 
 if APP_CONSOLE_LOGGER
 config APP_CONSOLE_LOG_SIZE
