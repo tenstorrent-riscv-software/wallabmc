@@ -226,16 +226,23 @@ int main(void)
 		/* Continue */
 	}
 
-	LOG_DBG("Network init");
-	if (net_init() < 0) {
-		LOG_ERR("Network init failed");
-		return -1;
-	}
-
+	/*
+	 * Wi-Fi connect must be requested before net_init(), because
+	 * net_init() blocks in net_config_init_app() waiting for the
+	 * interface to come up. On Wi-Fi boards that only happens once
+	 * association completes, so the connect request has to be in
+	 * flight first.
+	 */
 	LOG_DBG("Wi-Fi connect init");
 	if (wifi_connect_init() < 0) {
 		LOG_ERR("Wi-Fi connect init failed");
 		/* Continue */
+	}
+
+	LOG_DBG("Network init");
+	if (net_init() < 0) {
+		LOG_ERR("Network init failed");
+		/* Continue -- shell stays up so the user can `wifi connect`. */
 	}
 
 	LOG_DBG("Power init");
