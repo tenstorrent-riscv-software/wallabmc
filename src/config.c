@@ -79,7 +79,7 @@ static size_t strlcpy(char *ZRESTRICT dst, const char *ZRESTRICT src, size_t dst
 	size_t src_len = strlen(src);
 
 	if (dstsize != 0) {
-		size_t copy_len = min(src_len, dstsize - 1);
+		size_t copy_len = MIN(src_len, dstsize - 1);
 		memcpy(dst, src, copy_len);
 		dst[copy_len] = '\0';
 	}
