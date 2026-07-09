@@ -1,0 +1,135 @@
+/*
+ * WallaBMC application overlay for the WIZnet W5500-EVB-Pico2 (RP2350A).
+ *
+ * Pin assignments (Pico header):
+ *   UART0 (BMC console):  GP0 TX, GP1 RX
+ *   UART1 (host console): GP6 TX, GP7 RX          (RP2350 UART1 alt func)
+ *   Host power button:    GP2 (open-drain, active-low)
+ *   Host system reset:    GP3 (open-drain, active-low)
+ *   JTAG TCK:             GP8
+ *   JTAG TMS:             GP9
+ *   JTAG TDI:             GP10
+ *   JTAG TDO:             GP11 (input, pull-up)
+ *   Status LED:           GP22 (active-high)
+ *   Reset button:         GP23 (active-low, external pull-up)
+ *
+ * W5500 Ethernet on SPI0:
+ *   MISO = GP16, CS = GP17, SCK = GP18, MOSI = GP19
+ *   W5500 INT = GP21, W5500 RST = GP20
+ *   Onboard LED = GP25
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/pinctrl/rpi-pico-rp2350a-pinctrl.h>
+
+/ {
+	chosen {
+		zephyr,console = &cdc_acm_uart0;
+		zephyr,shell-uart = &cdc_acm_uart0;
+	};
+
+	aliases {
+		host-console-uart = &uart1;
+		jtagtck = &jtagtck;
+		jtagtms = &jtagtms;
+		jtagtdi = &jtagtdi;
+		jtagtdo = &jtagtdo;
+		power-gpio-1 = &host_pwrbtn;
+		reset-gpio-1 = &host_sysreset;
+		status-led    = &status_led;
+		reset-button  = &reset_button;
+	};
+
+	host_power {
+		compatible = "gpio-leds";
+
+		/*
+		 * Open-drain active-low signals: the BMC only sinks current
+		 * and lets the host motherboard provide the pull-up.
+		 */
+		host_pwrbtn: host_pwrbtn {
+			gpios = <&gpio0 2 (GPIO_ACTIVE_LOW | GPIO_OPEN_DRAIN)>;
+		};
+		host_sysreset: host_sysreset {
+			gpios = <&gpio0 3 (GPIO_ACTIVE_LOW | GPIO_OPEN_DRAIN)>;
+		};
+	};
+
+	jtag {
+		compatible = "gpio-leds";
+
+		jtagtck: jtag_tck {
+			gpios = <&gpio0 8 GPIO_ACTIVE_HIGH>;
+		};
+		jtagtms: jtag_tms {
+			gpios = <&gpio0 9 GPIO_ACTIVE_HIGH>;
+		};
+		jtagtdo: jtag_tdo {
+			gpios = <&gpio0 11 GPIO_PULL_UP>;
+		};
+		jtagtdi: jtag_tdi {
+			gpios = <&gpio0 10 GPIO_ACTIVE_HIGH>;
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		status_led: led_1 {
+			gpios = <&gpio0 22 GPIO_ACTIVE_HIGH>;
+			label = "Status LED";
+		};
+	};
+
+	gpio_keys {
+		compatible = "gpio-keys";
+
+		reset_button: button_0 {
+			label = "Reset";
+			gpios = <&gpio0 23 GPIO_ACTIVE_LOW>;
+			zephyr,code = <INPUT_KEY_0>;
+		};
+	};
+};
+
+/* Storage partition will be added once MCUboot re-partitioning is sorted.
+ * For now, the base DTS code_partition covers the entire flash (2 MB).
+ */
+
+/* BMC console over USB CDC ACM (virtual serial port) */
+&zephyr_udc0 {
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+	};
+};
+
+/* Host serial console on UART1 (GP6 TX, GP7 RX) */
+&uart1 {
+	current-speed = <115200>;
+	status = "okay";
+	pinctrl-0 = <&uart1_default>;
+	pinctrl-names = "default";
+};
+
+/*
+ * Add uart1_default pinctrl — the W5500-EVB-Pico2 base DTS only defines
+ * uart0_default.  RP2350 UART1 alt function is on GP6/GP7.
+ *
+ * The rpi-pico-rp2350-pinctrl-common header uses the undefined constant
+ * RP2_PINCTRL_GPIO_FUNC_UART_ALT in its UART1_TX_P6 / UART1_RX_P7 macros;
+ * work around it by defining the constant here (value 11 = UART_AUX).
+ */
+#define RP2_PINCTRL_GPIO_FUNC_UART_ALT 11
+
+&pinctrl {
+	uart1_default: uart1_default {
+		group1 {
+			pinmux = <UART1_TX_P6>;
+		};
+		group2 {
+			pinmux = <UART1_RX_P7>;
+			input-enable;
+		};
+	};
+};

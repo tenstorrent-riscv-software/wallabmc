@@ -8,7 +8,7 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(wallabmc)
 
 # Boards that use their SoC's native bootloader and skip mcuboot/sysbuild.
-set(NO_SYSBUILD_BOARDS "qemu_cortex_m3" "xiao_esp32c6")
+set(NO_SYSBUILD_BOARDS "qemu_cortex_m3" "xiao_esp32c6" "w5500_evb_pico2")
 if(BOARD IN_LIST NO_SYSBUILD_BOARDS)
 	if(SYSBUILD)
 		message(FATAL_ERROR "${BOARD} must NOT be built with sysbuild (e.g., no --sysbuild argument)")
@@ -18,7 +18,6 @@ else()
 		message(FATAL_ERROR "Hardware boards must be built with sysbuild (e.g., --sysbuild argument)")
 	endif()
 endif()
-
 
 zephyr_linker_sources(SECTIONS sections-rom.ld)
 zephyr_linker_section_ifdef(CONFIG_HTTP_SERVER
@@ -202,6 +201,8 @@ if(CONFIG_PERSISTENT_STORAGE)
     zephyr_code_relocate(FILES ${flash_driver} LOCATION RAM)
   elseif(CONFIG_SOC_FLASH_ESP32)
     # ESP32 flash driver disables the XIP cache internally; no relocation needed.
+  elseif(CONFIG_SOC_FAMILY_RPI_PICO)
+    # RP2 flash driver suspends XIP internally (flash_safe_execute); no relocation needed.
   else()
     message(FATAL_ERROR "flash storage handling is not defined for this platform")
   endif()
