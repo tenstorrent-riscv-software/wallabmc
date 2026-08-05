@@ -363,7 +363,7 @@ static int name##_handler(struct http_client_ctx *client,				\
 				patch_handler,						\
 				post_handler);						\
 }											\
-static const struct http_resource_detail_dynamic name##_detail = {			\
+static struct http_resource_detail_dynamic name##_detail = {				\
 	.common = {									\
 		.type = HTTP_RESOURCE_TYPE_DYNAMIC,					\
 		.bitmask_of_supported_http_methods = -1U,				\
