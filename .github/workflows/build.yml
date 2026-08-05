@@ -14,7 +14,7 @@ jobs:
   check-spdx:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Check SPDX licenses
         uses: tenstorrent/tt-github-actions/.github/actions/spdx-checker@main
         with:
@@ -26,7 +26,7 @@ jobs:
 
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/zephyrproject-rtos/ci-repo-cache:v0.29.0.20260314
+      image: ghcr.io/zephyrproject-rtos/ci-repo-cache:v0.29.3.20260727
 
     strategy:
       matrix:
@@ -39,7 +39,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: wallabmc
 
@@ -56,7 +56,7 @@ jobs:
         run: mkdir workspace
 
       - name: Cache West Modules
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         env:
           cache-name: cache-zephyr-modules
         with:
@@ -101,7 +101,7 @@ jobs:
 
       - name: Upload Board Firmware
         if: ${{ matrix.board != 'qemu_cortex_m3' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: wallabmc-firmware-${{ matrix.board }}
           path: |
@@ -116,7 +116,7 @@ jobs:
 
       - name: Upload QEMU Firmware
         if: ${{ matrix.board == 'qemu_cortex_m3' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: wallabmc-firmware-${{ matrix.board }}
           path: |
@@ -131,7 +131,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: wallabmc
 
@@ -141,7 +141,7 @@ jobs:
           sudo apt-get install -qq telnet qemu-system-arm
 
       - name: Download QEMU Firmware
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: wallabmc-firmware-qemu_cortex_m3
           path: firmware
