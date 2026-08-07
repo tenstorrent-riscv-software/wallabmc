@@ -27,6 +27,7 @@ WallaBMC currently supports the following hardware platforms:
 | --- | --- | --- |
 | **SiFive HiFive Premier P550 MCU** | hifive_premier_p550_mcu | RISC-V based platform |
 | **STM32 Nucleo F767ZI** | nucleo_f767zi | ARM Cortex-M7 development board (standalone, no host CPU) |
+| **Seeed Studio XIAO ESP32-C6** | xiao_esp32c6/esp32c6/hpcore | RISC-V, Wi-Fi 6, on a 21×17.5 mm board with USB-C; BMC console over USB Serial/JTAG (see [below](#seeed-xiao-esp32-c6)) |
 | **qemu** | qemu_cortex_m3 | see [run_qemu_ci.py](scripts/run_qemu_ci.py) |
 
 ### Screenshot
@@ -34,6 +35,87 @@ WallaBMC currently supports the following hardware platforms:
 The main page of the web interface is shown below, click to enlarge.
 
 [![Web UI screenshot](img/web-ui-thumbnail.png)](img/web-ui.png)
+
+### Seeed XIAO ESP32-C6
+
+The ESP32-C6 (RISC-V, Wi-Fi 6) on Seeed Studio's 21×17.5 mm XIAO form
+factor with a USB-C connector. The BMC console runs over the SoC's
+built-in USB Serial/JTAG (the XIAO's USB-C port), so a separate UART
+(UART1) is free for the host serial bridge. Only three GPIOs on the
+XIAO connector are needed for host control; the host UART pads stay
+clear of the default I2C bus (D4/D5) and SPI bus (D8/D9/D10) so those
+remain free for other uses.
+
+#### Wiring
+
+Four wires between the XIAO ESP32-C6 and the host board:
+
+| XIAO pin | GPIO | Direction | Host signal | Notes |
+| --- | --- | --- | --- | --- |
+| D0 | GPIO0 | out | host UART RX | UART1 TX — host serial console (115200 8N1) |
+| D3 | GPIO21 | in | host UART TX | UART1 RX — host serial console |
+| D2 | GPIO2 | out (open-drain) | SYSRESET# input | Active-low, 1 s low pulse on `reset` / `power force-restart` |
+| GND | — | — | GND | Common reference, required |
+
+> **Voltage warning.** ESP32-C6 GPIOs are **not** 5 V tolerant. The
+> SYSRESET# pin is driven open-drain, so it only sinks — the host's
+> internal pull-up sets the un-asserted level. If the host holds that
+> line above 3.3 V when un-asserted, add a small N-MOSFET (gate = ESP32
+> GPIO, drain = host pin, source = GND) between them. The UART1 RX
+> line (D3 / GPIO21) sees the host's TX voltage directly; if the host
+> UART runs above 3.3 V, level-shift it.
+
+#### Build and flash
+
+The XIAO uses Espressif's built-in Simple Boot rather than MCUboot,
+so the build skips ``--sysbuild``. Plug the XIAO into your build host
+over USB-C — the same USB cable provides power, flashes the firmware,
+and carries the BMC console:
+
+```
+# One-time: fetch the Espressif Wi-Fi/PHY binary blobs.
+west blobs fetch hal_espressif
+
+cd zephyr
+west build -b xiao_esp32c6/esp32c6/hpcore ../wallabmc --pristine \
+    -- -DCONFIG_DEFAULT_ADMIN_PASSWORD='"admin"'
+west flash
+```
+
+The first time you boot a freshly flashed image with no baked-in
+SSID, set the Wi-Fi from the BMC console (USB-CDC over the XIAO's
+USB-C port):
+
+```
+wifi connect your-ssid your-password
+```
+
+The credentials are persisted in NVS and reused on every subsequent
+boot. To bake an SSID into the image instead (for first-boot bring-up
+without console access), add to the cmake line:
+
+```
+    -DCONFIG_WIFI_CREDENTIALS=y \
+    -DCONFIG_WIFI_CREDENTIALS_STATIC=y \
+    -DCONFIG_WIFI_CREDENTIALS_STATIC_SSID='"your-ssid"' \
+    -DCONFIG_WIFI_CREDENTIALS_STATIC_PASSWORD='"your-password"' \
+```
+
+On boot the BMC associates to Wi-Fi, picks up a DHCPv4 lease, and
+logs the address on the BMC console. Browse to ``http://<that-ip>/``
+for the web UI; the BMC shell is available there, on the BMC USB-CDC
+console, or (once the host is up) the host UART console is reachable
+via the web UI's host-console terminal and TCP port 22.
+
+#### Host control from the shell
+
+```
+power on              # 200 ms press on GPIO1 (if BMC believes host is off)
+power off             # 200 ms press on GPIO1 (if BMC believes host is on)
+power force-off       # 6 s press on GPIO1
+power force-restart   # 1 s low pulse on GPIO2 (SYSRESET#)
+reset                 # alias for power force-restart
+```
 
 ## Using
 

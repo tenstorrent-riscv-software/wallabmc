@@ -1,11 +1,12 @@
 /*
  * Minimal Zephyr Redfish Implementation
- * Implements: ComputerSystem.Reset (On/ForceOff/PowerCycle)
+ * Implements: ComputerSystem.Reset (On/ForceOff/PowerCycle/ForceRestart)
  *
  * redfishtool Systems -r 192.168.2.55 -vvv -I system
  * redfishtool Systems -r 192.168.2.55 -vvv reset On
  * redfishtool Systems -r 192.168.2.55 -vvv reset ForceOff
  * redfishtool Systems -r 192.168.2.55 -vvv reset PowerCycle
+ * redfishtool Systems -r 192.168.2.55 -vvv reset ForceRestart
  *
  * SPDX-FileCopyrightText: © 2025-2026 Tenstorrent USA, Inc.
  * SPDX-License-Identifier: Apache-2.0
@@ -1240,14 +1241,14 @@ static char serial_number[] = "12345";
 /* System Info: ResetType array */
 struct redfish_reset_action {
 	const char *target;
-	const char *reset_type_values[3];
+	const char *reset_type_values[4];
 	size_t reset_type_values_len;
 };
 static const struct json_obj_descr reset_action_descr[] = {
 	JSON_OBJ_DESCR_PRIM(struct redfish_reset_action, target, JSON_TOK_STRING),
 	JSON_OBJ_DESCR_ARRAY_NAMED(struct redfish_reset_action,
 				   "ResetType@Redfish.AllowableValues",
-				   reset_type_values, 3, reset_type_values_len,
+				   reset_type_values, 4, reset_type_values_len,
 				   JSON_TOK_STRING),
 };
 
@@ -1429,9 +1430,10 @@ static int system_get_handler(struct http_resource_user_data *user_data)
 				.reset_type_values = {
 					"On",
 					"ForceOff",
-					"PowerCycle"
+					"PowerCycle",
+					"ForceRestart"
 				},
-				.reset_type_values_len = 3
+				.reset_type_values_len = 4
 			}
 		}
 	};
@@ -1480,6 +1482,8 @@ static int system_reset_post_handler(struct http_resource_user_data *user_data)
 	} else if (strcmp(payload.reset_type, "ForceOff") == 0) {
 		power_set_state(false);
 	} else if (strcmp(payload.reset_type, "PowerCycle") == 0) {
+		power_reset();
+	} else if (strcmp(payload.reset_type, "ForceRestart") == 0) {
 		power_reset();
 	} else {
 		LOG_ERR("ComputerSystem.Reset: Bad reset type");

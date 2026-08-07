@@ -12,7 +12,7 @@ int time_set_from_iso_str(const char *str);
 #else /* defined(CONFIG_RTC) */
 static inline int rtc_init(void) { return 0; }
 static inline int rtc_set_from_clock(void) { return -ENODEV; }
-static inline int time_set_from_iso_str(void) { return -ENODEV; }
+static inline int time_set_from_iso_str(const char *str) { return -ENODEV; }
 #endif /* defined(CONFIG_RTC) */
 
 #endif /* __RTC_H__ */
