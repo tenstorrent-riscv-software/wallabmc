@@ -92,11 +92,8 @@ static void led_dot(void)
 	k_msleep(LED_BLINK_PERIOD_PAUSE);
 }
 
-static void status_led_blink(void)
+static void status_led_okay(void)
 {
-	if (!gpio_is_ready_dt(&status_led))
-		return;
-
 	// Flash OK in morse code: - - -   - . -
 	while (1) {
 		// O
@@ -114,6 +111,23 @@ static void status_led_blink(void)
 		// Pause
 		k_msleep(LED_BLINK_PERIOD_WORD);
 	}
+}
+
+static void status_led_fail(void)
+{
+	while (1)
+		led_dot();
+}
+
+static void status_led_blink(bool fail)
+{
+	if (!gpio_is_ready_dt(&status_led))
+		return;
+
+	if (fail)
+		status_led_fail();
+	else
+		status_led_okay();
 }
 
 static int status_led_init(void)
@@ -137,7 +151,7 @@ static int status_led_init(void)
 }
 
 #else /* DT_NODE_HAS_STATUS_OKAY(STATUS_LED) */
-static void status_led_blink(void)
+static void status_led_blink(bool fail)
 {
 }
 
@@ -332,6 +346,15 @@ SHELL_CMD_REGISTER(hop, NULL, "Make the wallaby hop across the screen.", cmd_hop
 
 int main(void)
 {
+	/*
+	 * If fail_status is set, the host will not be auto-powered on,
+	 * and the status LED will blink fast. The system might still be
+	 * usable or at least debuggable, so don't fail entirely.
+	 *
+	 * Expected or tolerable errors can avoid setting fail_status.
+	 */
+	bool fail_status = false;
+
 	print_banner();
 
 	/* Turn on the status LED early */
@@ -344,13 +367,13 @@ int main(void)
 	LOG_DBG("RTC init");
 	if (rtc_init() < 0) {
 		LOG_ERR("RTC init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	LOG_DBG("VPD init");
 	if (vpd_init() < 0) {
 		LOG_ERR("VPD init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	LOG_DBG("Filesystem init");
@@ -361,13 +384,17 @@ int main(void)
 	LOG_DBG("Config init");
 	if (config_init() < 0) {
 		LOG_ERR("Config init failed");
-		return -1;
+		fail_status = true;
 	}
+
+	/*
+	 * After the basics are up
+	 */
 
 	LOG_DBG("Button init");
 	if (button_init() < 0) {
 		LOG_ERR("Button init failed");
-		/* Continue */
+		fail_status = true;
 	}
 
 	LOG_DBG("Network init");
@@ -379,25 +406,25 @@ int main(void)
 	LOG_DBG("Power init");
 	if (power_init() < 0) {
 		LOG_ERR("Power init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	LOG_DBG("Reset init");
 	if (reset_init() < 0) {
 		LOG_ERR("Reset init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	LOG_DBG("JTAG init");
 	if (jtag_init() < 0) {
 		LOG_ERR("JTAG init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	LOG_DBG("Console logger init");
 	if (console_logger_init() < 0) {
 		LOG_ERR("Console logger init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	/*
@@ -408,8 +435,13 @@ int main(void)
 	 * If auto-poweron fails, a message will be logged. Don't
 	 * fail BMC boot, because the admin may want to diagnose
 	 * and try power cycling etc.
+	 *
+	 * If something has failed, don't try to auto-poweron.
 	 */
-	power_auto_poweron();
+	if (fail_status)
+		LOG_WRN("Boot failures encountered, not powering on host");
+	else
+		power_auto_poweron();
 
 	/*
 	 * Interfaces to outside world are brought up after auto poweron, so
@@ -420,26 +452,26 @@ int main(void)
 	LOG_DBG("HTTP server init");
 	if (app_http_server_init() < 0) {
 		LOG_ERR("HTTP server init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	LOG_DBG("Console bridge init");
 	if (console_bridge_init() < 0) {
 		LOG_ERR("Console bridge init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	LOG_DBG("Console bridge WS init");
 	if (console_bridge_ws_init() < 0) {
 		LOG_ERR("Console bridge WS init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	boot_finished = true;
 
 	LOG_INF("BMC boot complete");
 
-	status_led_blink();
+	status_led_blink(fail_status);
 
 	/* If no LED, this will fall through and exit the main thread */
 
