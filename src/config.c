@@ -27,6 +27,10 @@ LOG_MODULE_REGISTER(wallabmc_config, LOG_LEVEL_INF);
 
 #define MAX_NTP_SERVER_LEN 40
 
+/* 802.11 caps SSID at 32 bytes; WPA-PSK passphrase is 8..63 chars. */
+#define MAX_WIFI_SSID_LEN 32
+#define MAX_WIFI_PASSWORD_LEN 63
+
 /* Incrementing this allows a flag-day upgrade, but avoid doing it. */
 #define CFG_CURRENT_VERSION 3
 
@@ -41,6 +45,8 @@ enum config_id {
 	CFG_BMC_USE_NTP = 8,			/* uint8_t */
 	CFG_BMC_NTP_SERVER = 9,		/* C string */
 	CFG_HOST_AUTO_POWERON = 10,		/* uint8_t */
+	CFG_WIFI_SSID = 11,			/* C string */
+	CFG_WIFI_PASSWORD = 12,		/* C string */
 	/*
 	 * Add field IDs in increasing order and do not reuse deprecated
 	 * ones. Do not change meaning but add new and deprecate old.
@@ -60,6 +66,8 @@ struct config_data {
 	char bmc_ntp_server[MAX_NTP_SERVER_LEN + 1]; /* NULL terminated */
 	uint32_t bmc_default_ip4_nm;
 	uint32_t bmc_default_ip4_gw;
+	char wifi_ssid[MAX_WIFI_SSID_LEN + 1];      /* NULL terminated, empty = unset */
+	char wifi_password[MAX_WIFI_PASSWORD_LEN + 1]; /* NULL terminated */
 };
 
 BUILD_ASSERT(strlen(CONFIG_DEFAULT_ADMIN_PASSWORD) <= MAX_PW_LEN);
@@ -100,7 +108,8 @@ static ssize_t __config_write(uint16_t id, const void *buf, size_t size)
 {
 	if (config_use_fs)
 		return fs_key_write(id, buf, size);
-	return -ENODEV;
+	/* No persistent storage; caller's RAM copy is the only source of truth. */
+	return size;
 }
 
 #define config_read(id, var)				\
@@ -171,6 +180,69 @@ bool config_bmc_use_ntp(void)
 const char *config_bmc_ntp_server(void)
 {
 	return config_data.bmc_ntp_server;
+}
+
+const char *config_wifi_ssid(void)
+{
+	return config_data.wifi_ssid;
+}
+
+const char *config_wifi_password(void)
+{
+	return config_data.wifi_password;
+}
+
+int config_wifi_set(const char *ssid, const char *password)
+{
+	int rc;
+
+	if (ssid == NULL || password == NULL)
+		return -EINVAL;
+	if (strlen(ssid) == 0 || strlen(ssid) > MAX_WIFI_SSID_LEN) {
+		LOG_ERR("Invalid Wi-Fi SSID length");
+		return -EINVAL;
+	}
+	if (strlen(password) > MAX_WIFI_PASSWORD_LEN) {
+		LOG_ERR("Wi-Fi password too long (max %d)", MAX_WIFI_PASSWORD_LEN);
+		return -EINVAL;
+	}
+
+	strlcpy(config_data.wifi_ssid, ssid, sizeof(config_data.wifi_ssid));
+	strlcpy(config_data.wifi_password, password, sizeof(config_data.wifi_password));
+
+	rc = config_write_str(CFG_WIFI_SSID, config_data.wifi_ssid);
+	if (rc < 0) {
+		LOG_ERR("Configuration could not be saved (err=%d)", rc);
+		return rc;
+	}
+	rc = config_write_str(CFG_WIFI_PASSWORD, config_data.wifi_password);
+	if (rc < 0) {
+		LOG_ERR("Configuration could not be saved (err=%d)", rc);
+		return rc;
+	}
+
+	return 0;
+}
+
+int config_wifi_clear(void)
+{
+	int rc;
+
+	config_data.wifi_ssid[0] = '\0';
+	config_data.wifi_password[0] = '\0';
+
+	rc = config_write_str(CFG_WIFI_SSID, config_data.wifi_ssid);
+	if (rc < 0) {
+		LOG_ERR("Configuration could not be saved (err=%d)", rc);
+		return rc;
+	}
+	rc = config_write_str(CFG_WIFI_PASSWORD, config_data.wifi_password);
+	if (rc < 0) {
+		LOG_ERR("Configuration could not be saved (err=%d)", rc);
+		return rc;
+	}
+
+	return 0;
 }
 
 #if defined(CONFIG_APP_HTTPS_PSK)
@@ -846,6 +918,20 @@ int config_init(void)
 		config_data.host_auto_poweron = 0;
 		config_write(CFG_HOST_AUTO_POWERON, config_data.host_auto_poweron);
 	}
+
+	/*
+	 * Wi-Fi credentials default to the empty string when no value has
+	 * been set via `wifi connect`. wifi.c treats empty SSID as "fall back
+	 * to the compile-time static credential", so don't write anything
+	 * back here -- the absence of a key is the signal.
+	 */
+	rc = config_read_str(CFG_WIFI_SSID, config_data.wifi_ssid);
+	if (rc < 0)
+		config_data.wifi_ssid[0] = '\0';
+
+	rc = config_read_str(CFG_WIFI_PASSWORD, config_data.wifi_password);
+	if (rc < 0)
+		config_data.wifi_password[0] = '\0';
 
 	return 0;
 }

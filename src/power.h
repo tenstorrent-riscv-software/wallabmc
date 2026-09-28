@@ -9,8 +9,9 @@ int power_init(void);
 int reset_init(void);
 int status_led_init(void);
 
-int power_set_state(bool on);
+void power_set_state(bool on);
 bool power_get_state(void);
 int power_reset(void);
+int power_force_off(void);
 
 #endif
