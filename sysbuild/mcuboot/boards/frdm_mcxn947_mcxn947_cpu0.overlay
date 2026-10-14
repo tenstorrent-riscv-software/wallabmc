@@ -1,0 +1,12 @@
+#include "../../../boards/frdm_mcxn947_mcxn947_cpu0.overlay"
+
+/*
+ * This comes from zephyr/bootloader/mcuboot/boot/zephyr/app.overlay
+ * Otherwise mcuboot builds using the slot0_partition which is where
+ * wallabmc lives.
+ */
+/ {
+	chosen {
+		zephyr,code-partition = &boot_partition;
+	};
+};
