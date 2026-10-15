@@ -6,6 +6,7 @@
 #include <zephyr/shell/shell.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <errno.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
@@ -15,6 +16,7 @@
 LOG_MODULE_REGISTER(wallabmc_power);
 
 #include "config.h"
+#include "main.h"
 #include "power.h"
 
 #define GPIO_POWER_1 DT_ALIAS(power_gpio_1)
@@ -45,6 +47,36 @@ static const struct gpio_dt_spec gpio_reset =
 	{ 0 };
 #endif
 
+/*
+ * One host power operation at a time. The power button is shared by
+ * the shell, Redfish and auto power-on, on different threads, and a
+ * momentary-button press is an assert / sleep / release sequence on
+ * the caller's thread: a second caller releasing the pin after 200 ms
+ * cuts a 6 s force-off short while both report success. A late caller
+ * is told -EBUSY rather than queued, because a press that lands
+ * seconds later arrives at a host whose state the first operation has
+ * already changed; the operator is better told to look and try again.
+ * The thread that asked sleeps through the hold itself: the system
+ * workqueue can be busy for seconds (sntp_query() in ntp.c) and would
+ * stretch a 200 ms press. Callers are threads (shell, HTTP server,
+ * main) and must stay so; a mutex cannot be taken from an ISR.
+ *
+ * Taken by the public entry points. The static power_on(),
+ * power_off(), force_off() and power_pulse() workers assume it is
+ * held. power_get_state() is deliberately lock-free.
+ */
+static K_MUTEX_DEFINE(host_power_mutex);
+
+static int host_power_lock(void)
+{
+	int ret = k_mutex_lock(&host_power_mutex, K_NO_WAIT);
+
+	if (ret < 0)
+		LOG_WRN("Host power operation already in progress");
+
+	return ret;	/* -EBUSY */
+}
+
 static bool system_power_state = false;
 
 bool power_get_state(void)
@@ -53,29 +85,40 @@ bool power_get_state(void)
 }
 
 #ifdef CONFIG_APP_HOST_POWER_PULSE
+/* Drive every power GPIO to val; try them all so one failure cannot leave another asserted */
+static int power_button_set(int val)
+{
+	int i, ret = 0;
+
+	for (i = 0; i < ARRAY_SIZE(power_gpios); i++) {
+		if (gpio_pin_set_dt(&power_gpios[i], val) < 0) {
+			LOG_ERR("Could not %s power GPIO %d",
+				val ? "assert" : "release", i);
+			ret = -1;
+		}
+	}
+
+	return ret;
+}
+
+/* Hold the power button for ms on the caller's thread. host_power_mutex held. */
 static int power_pulse(int ms)
 {
-	int i, ret;
+	int ret, err;
 
-	for (i = 0; i < ARRAY_SIZE(power_gpios); i++) {
-		ret = gpio_pin_set_dt(&power_gpios[i], 1);
-		if (ret < 0) {
-			LOG_ERR("Could not assert power GPIO %d", i);
-			return -1;
-		}
-	}
+	ret = power_button_set(1);
+	if (ret == 0)
+		k_msleep(ms);
 
-	k_msleep(ms);
+	/*
+	 * Release even after a failed assert: a GPIO that did assert would
+	 * otherwise stay pressed, and a held button is a force-off.
+	 */
+	err = power_button_set(0);
+	if (err < 0)
+		LOG_ERR("Power button may still be held");
 
-	for (i = 0; i < ARRAY_SIZE(power_gpios); i++) {
-		ret = gpio_pin_set_dt(&power_gpios[i], 0);
-		if (ret < 0) {
-			LOG_ERR("Could not release power GPIO %d", i);
-			return -1;
-		}
-	}
-
-	return 0;
+	return ret ? ret : err;
 }
 
 static int power_on(void)
@@ -112,7 +155,7 @@ static int power_off(void)
 	return 0;
 }
 
-int power_force_off(void)
+static int force_off(void)
 {
 	int ret;
 
@@ -173,35 +216,63 @@ static int power_off(void)
 	return 0;
 }
 
-int power_force_off(void)
+static int force_off(void)
 {
 	return power_off();
 }
 #endif /* CONFIG_APP_HOST_POWER_PULSE */
 
+int power_force_off(void)
+{
+	int ret;
+
+	ret = host_power_lock();
+	if (ret < 0)
+		return ret;
+
+	ret = force_off();
+
+	k_mutex_unlock(&host_power_mutex);
+
+	return ret;
+}
+
 int power_cycle(void)
 {
+	int ret;
+
+	ret = host_power_lock();
+	if (ret < 0)
+		return ret;
+
 	if (system_power_state) {
-		if (power_force_off() < 0)
-			return -1;
+		ret = force_off();
+		if (ret < 0)
+			goto out;
 	}
 
 	k_msleep(2000);
 
-	if (power_on() < 0)
-		return -1;
-
-	return 0;
+	ret = power_on();
+out:
+	k_mutex_unlock(&host_power_mutex);
+	return ret;
 }
 
 int power_set_state(bool on)
 {
 	int ret;
 
+	ret = host_power_lock();
+	if (ret < 0)
+		return ret;
+
 	if (on)
 		ret = power_on();
 	else
 		ret = power_off();
+
+	k_mutex_unlock(&host_power_mutex);
 
 	if (ret < 0) {
 		LOG_ERR("Failed to set power state: %d", ret);
@@ -244,36 +315,79 @@ int power_init(void)
 
 int power_auto_poweron(void)
 {
-	if (config_host_auto_poweron()) {
-		int ret = power_on();
-		if (ret < 0) {
-			LOG_ERR("Auto power-on failed: %d", ret);
-			return ret;
-		}
-	}
+	int ret;
 
-	return 0;
+	if (!config_host_auto_poweron())
+		return 0;
+
+	ret = host_power_lock();
+	if (ret < 0)
+		return ret;
+
+	ret = power_on();
+	if (ret < 0)
+		LOG_ERR("Auto power-on failed: %d", ret);
+
+	k_mutex_unlock(&host_power_mutex);
+
+	return ret;
 }
 
 static int cmd_power_on(const struct shell *sh, size_t argc, char **argv)
 {
+	int rc;
+
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
-	return power_on();
+
+	if (!is_boot_finished()) {
+		shell_error(sh, "must wait for boot to finish");
+		return -EAGAIN;
+	}
+
+	rc = power_set_state(true);
+	if (rc)
+		shell_error(sh, "power on failed (err=%d)", rc);
+
+	return rc;
 }
 
 static int cmd_power_off(const struct shell *sh, size_t argc, char **argv)
 {
+	int rc;
+
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
-	return power_off();
+
+	if (!is_boot_finished()) {
+		shell_error(sh, "must wait for boot to finish");
+		return -EAGAIN;
+	}
+
+	rc = power_set_state(false);
+	if (rc)
+		shell_error(sh, "power off failed (err=%d)", rc);
+
+	return rc;
 }
 
 static int cmd_power_force_off(const struct shell *sh, size_t argc, char **argv)
 {
+	int rc;
+
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
-	return power_force_off();
+
+	if (!is_boot_finished()) {
+		shell_error(sh, "must wait for boot to finish");
+		return -EAGAIN;
+	}
+
+	rc = power_force_off();
+	if (rc)
+		shell_error(sh, "power force-off failed (err=%d)", rc);
+
+	return rc;
 }
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_power_cmds,
@@ -333,9 +447,14 @@ int power_reset(void)
 		}
 	}
 
+	ret = host_power_lock();
+	if (ret < 0)
+		return ret;
+
 	if (!system_power_state) {
 		LOG_ERR("Host reset requested with power off\n");
-		return -1;
+		ret = -1;
+		goto out;
 	}
 
 	if (DT_NODE_HAS_STATUS_OKAY(GPIO_RESET) &&
@@ -343,7 +462,8 @@ int power_reset(void)
 		ret = gpio_pin_set_dt(&gpio_reset, 1);
 		if (ret < 0) {
 			LOG_INF("Could not assert RESET GPIO\n");
-			return -1;
+			ret = -1;
+			goto out;
 		}
 	}
 
@@ -364,18 +484,34 @@ int power_reset(void)
 		ret = gpio_pin_set_dt(&gpio_reset, 0);
 		if (ret < 0) {
 			LOG_INF("Could not deassert RESET GPIO\n");
-			return -1;
+			ret = -1;
+			goto out;
 		}
 	}
 
-	return 0;
+	ret = 0;
+out:
+	k_mutex_unlock(&host_power_mutex);
+	return ret;
 }
 
 static int cmd_reset(const struct shell *sh, size_t argc, char **argv)
 {
+	int rc;
+
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
-	return power_reset();
+
+	if (!is_boot_finished()) {
+		shell_error(sh, "must wait for boot to finish");
+		return -EAGAIN;
+	}
+
+	rc = power_reset();
+	if (rc)
+		shell_error(sh, "reset failed (err=%d)", rc);
+
+	return rc;
 }
 
 SHELL_CMD_REGISTER(reset, NULL, "Reset.", cmd_reset);

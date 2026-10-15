@@ -1616,6 +1616,13 @@ static int system_reset_post_handler(struct http_resource_user_data *user_data)
 		return HTTP_400_BAD_REQUEST;
 	}
 
+	if (ret == -EBUSY) {
+		/* Another host power operation holds the button; the client can retry */
+		LOG_WRN("ComputerSystem.Reset: type %s rejected, host power operation in progress",
+			payload.reset_type);
+		return HTTP_503_SERVICE_UNAVAILABLE;
+	}
+
 	if (ret < 0) {
 		LOG_ERR("ComputerSystem.Reset: type %s operation failed",
 				payload.reset_type);
