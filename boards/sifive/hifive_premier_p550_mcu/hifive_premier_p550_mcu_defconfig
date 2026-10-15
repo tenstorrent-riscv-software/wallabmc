@@ -16,3 +16,9 @@ CONFIG_UART_CONSOLE=y
 
 # Enable GPIO
 CONFIG_GPIO=y
+
+# Enable I2C
+CONFIG_I2C=y
+
+# Enable PWM
+CONFIG_PWM=y
