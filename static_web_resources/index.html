@@ -893,7 +893,7 @@
 					for (let member of sensorsRoot.Members) {
 						const path = member['@odata.id'];
 						const sensor = await redfishCall(path);
-						if (sensor.PhysicalContext === "ManagementController" &&
+						if (sensor.PhysicalContext === "Manager" &&
 						    sensor.ReadingType === "Temperature") {
 							sensorTempIdPath = path
 							break;
