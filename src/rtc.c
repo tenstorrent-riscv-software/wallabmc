@@ -13,9 +13,16 @@ LOG_MODULE_REGISTER(wallabmc_rtc, LOG_LEVEL_INF);
 
 #include "rtc.h"
 
+#if DT_NODE_EXISTS(DT_NODELABEL(rtc))
+#define RTC_NODE DT_NODELABEL(rtc)
+#else
+#error "No 'rtc' dt node"
+#endif
+
+static const struct device *rtc = DEVICE_DT_GET(RTC_NODE);
+
 int rtc_set_from_timespec(const struct timespec *ts)
 {
-	static const struct device *rtc = DEVICE_DT_GET(DT_NODELABEL(rtc));
 	static struct rtc_time tm;
 	time_t t;
 	int ret;
@@ -132,7 +139,6 @@ int time_set_from_iso_str(const char *str)
 
 int rtc_init(void)
 {
-	static const struct device *rtc = DEVICE_DT_GET(DT_NODELABEL(rtc));
 	static struct rtc_time tm;
 	static struct timespec ts;
 	int ret;

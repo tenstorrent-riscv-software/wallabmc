@@ -13,5 +13,6 @@ int power_set_state(bool on);
 bool power_get_state(void);
 int power_cycle(void);
 int power_reset(void);
+int power_force_off(void);
 
 #endif

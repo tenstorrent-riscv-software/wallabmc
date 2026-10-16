@@ -15,7 +15,11 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(wallabmc_sensors);
 
+#if DT_NODE_EXISTS(DT_NODELABEL(die_temp))
 #define DIE_TEMP_NODE DT_NODELABEL(die_temp)
+#elif DT_NODE_EXISTS(DT_ALIAS(die_temp))
+#define DIE_TEMP_NODE DT_ALIAS(die_temp)
+#endif
 
 #if DT_NODE_EXISTS(DIE_TEMP_NODE)
 

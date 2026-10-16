@@ -37,8 +37,13 @@ static int sntp_set_clocks(struct sntp_time *ts)
 
 	ret = rtc_set_from_clock();
 	if (ret < 0) {
-		LOG_ERR("Updating RTC to clock failed (err=%d)", ret);
-		ret = 0; /* Don't really need to update RTC, so don't fail */
+		if (ret != -ENODEV) {
+			/* Don't log an error if we have no RTC */
+			LOG_ERR("Updating RTC to clock failed (err=%d)", ret);
+		}
+
+		/* RTC update failure does not prevent NTP sync */
+		ret = 0;
 	}
 
 	return ret;

@@ -18,6 +18,7 @@ LOG_MODULE_REGISTER(wallabmc_config, LOG_LEVEL_INF);
 #include "config.h"
 #include "main.h"
 #include "net.h"
+#include "wifi.h"
 #include "ntp.h"
 #include "fs.h"
 
@@ -27,20 +28,27 @@ LOG_MODULE_REGISTER(wallabmc_config, LOG_LEVEL_INF);
 
 #define MAX_NTP_SERVER_LEN 40
 
+/* 802.11 caps SSID at 32 bytes; WPA-PSK passphrase is 8..63 chars. */
+#define MAX_WIFI_SSID_LEN 32
+#define MAX_WIFI_PASSWORD_LEN 63
+
 /* Incrementing this allows a flag-day upgrade, but avoid doing it. */
 #define CFG_CURRENT_VERSION 3
 
 enum config_id {
 	CFG_VERSION = 1,			/* uint8_t */
 	CFG_BMC_ADMIN_PASSWORD = 2,		/* C string */
-	CFG_BMC_HOSTNAME = 3,		/* C string */
+	CFG_BMC_HOSTNAME = 3,			/* C string */
 	CFG_BMC_DEFAULT_IP4 = 4,		/* uint32_t */
 	CFG_BMC_DEFAULT_IP4_NM = 5,		/* uint32_t */
 	CFG_BMC_DEFAULT_IP4_GW = 6,		/* uint32_t */
-	CFG_BMC_USE_DHCP4 = 7,		/* uint8_t */
+	CFG_BMC_USE_DHCP4 = 7,			/* uint8_t */
 	CFG_BMC_USE_NTP = 8,			/* uint8_t */
-	CFG_BMC_NTP_SERVER = 9,		/* C string */
+	CFG_BMC_NTP_SERVER = 9,			/* C string */
 	CFG_HOST_AUTO_POWERON = 10,		/* uint8_t */
+	CFG_BMC_WIFI_ENABLE = 11,		/* uint8_t */
+	CFG_BMC_WIFI_SSID = 12,			/* C string */
+	CFG_BMC_WIFI_PASSWORD = 13,		/* C string */
 	/*
 	 * Add field IDs in increasing order and do not reuse deprecated
 	 * ones. Do not change meaning but add new and deprecate old.
@@ -60,9 +68,18 @@ struct config_data {
 	char bmc_ntp_server[MAX_NTP_SERVER_LEN + 1]; /* NULL terminated */
 	uint32_t bmc_default_ip4_nm;
 	uint32_t bmc_default_ip4_gw;
+#ifdef CONFIG_APP_WIFI
+	uint8_t bmc_wifi_enable;
+	char bmc_wifi_ssid[MAX_WIFI_SSID_LEN + 1];      /* NULL terminated, empty = unset */
+	char bmc_wifi_password[MAX_WIFI_PASSWORD_LEN + 1]; /* NULL terminated */
+#endif
 };
 
 BUILD_ASSERT(strlen(CONFIG_DEFAULT_ADMIN_PASSWORD) <= MAX_PW_LEN);
+#ifdef CONFIG_APP_WIFI
+BUILD_ASSERT(strlen(CONFIG_DEFAULT_WIFI_SSID) <= MAX_WIFI_SSID_LEN);
+BUILD_ASSERT(strlen(CONFIG_DEFAULT_WIFI_PASSWORD) <= MAX_WIFI_PASSWORD_LEN);
+#endif
 
 static struct config_data config_data;
 
@@ -174,6 +191,23 @@ const char *config_bmc_ntp_server(void)
 {
 	return config_data.bmc_ntp_server;
 }
+
+#ifdef CONFIG_APP_WIFI
+bool config_bmc_wifi_enable(void)
+{
+	return config_data.bmc_wifi_enable;
+}
+
+const char *config_bmc_wifi_ssid(void)
+{
+	return config_data.bmc_wifi_ssid;
+}
+
+const char *config_bmc_wifi_password(void)
+{
+	return config_data.bmc_wifi_password;
+}
+#endif
 
 #if defined(CONFIG_APP_HTTPS_PSK)
 /*
@@ -510,6 +544,8 @@ int config_bmc_use_ntp_set(bool use)
 
 static int cmd_config_bmc_ntp(const struct shell *sh, size_t argc, char **argv)
 {
+	int rc;
+
 	ARG_UNUSED(argc);
 
 	if (!is_boot_finished()) {
@@ -518,17 +554,23 @@ static int cmd_config_bmc_ntp(const struct shell *sh, size_t argc, char **argv)
 	}
 
 	if (!strcmp(argv[1], "enable")) {
-		config_bmc_use_ntp_set(true);
-		shell_info(sh, "BMC NTP enabled");
+		rc = config_bmc_use_ntp_set(true);
+		if (rc)
+			shell_error(sh, "BMC NTP config failed");
+		else
+			shell_info(sh, "BMC NTP enabled");
 	} else if (!strcmp(argv[1], "disable")) {
-		config_bmc_use_ntp_set(false);
-		shell_info(sh, "BMC NTP disabled");
+		rc = config_bmc_use_ntp_set(false);
+		if (rc)
+			shell_error(sh, "BMC NTP config failed");
+		else
+			shell_info(sh, "BMC NTP disabled");
 	} else {
 		shell_error(sh, "bmc ntp: unknown argument %s", argv[1]);
-		return -EINVAL;
+		rc = -EINVAL;
 	}
 
-	return 0;
+	return rc;
 }
 
 int config_bmc_ntp_server_set(const char *ntp_server)
@@ -628,6 +670,201 @@ static int cmd_config_bmc_password(const struct shell *sh, size_t argc, char **a
 	return 0;
 }
 
+#ifdef CONFIG_APP_WIFI
+int config_bmc_wifi_enable_set(bool use)
+{
+	int rc;
+
+	if (use) {
+		if (config_data.bmc_wifi_enable == 1)
+			return 0;
+		config_data.bmc_wifi_enable = 1;
+		rc = wifi_connect(config_bmc_wifi_ssid(), config_bmc_wifi_password());
+		if (rc) {
+			/* Can't do much about it. */
+		}
+	} else {
+		if (config_data.bmc_wifi_enable == 0)
+			return 0;
+		config_data.bmc_wifi_enable = 0;
+		wifi_disconnect();
+	}
+
+	rc = config_write(CFG_BMC_WIFI_ENABLE, config_data.bmc_wifi_enable);
+	if (rc < 0) {
+		LOG_ERR("Configuration could not be saved (err=%d)", rc);
+		return rc;
+	}
+
+	return 0;
+}
+
+#define CMD_HELP_BMC_WIFI_ENABLE			\
+	"BMC Wi-Fi enabled\n"				\
+	"Usage: bmc wifi enable <enable|disable>"
+
+static int cmd_config_bmc_wifi_enable(const struct shell *sh, size_t argc, char **argv)
+{
+	int rc;
+
+	ARG_UNUSED(argc);
+
+	if (!is_boot_finished()) {
+		shell_error(sh, "must wait for boot to finish");
+		return -EAGAIN;
+	}
+
+	if (!strcmp(argv[1], "enable")) {
+		rc = config_bmc_wifi_enable_set(true);
+		if (rc)
+			shell_error(sh, "BMC Wi-Fi config failed");
+		else
+			shell_info(sh, "BMC Wi-Fi enabled");
+	} else if (!strcmp(argv[1], "disable")) {
+		rc = config_bmc_wifi_enable_set(false);
+		if (rc)
+			shell_error(sh, "BMC Wi-Fi config failed");
+		else
+			shell_info(sh, "BMC Wi-Fi disabled");
+	} else {
+		rc = -EINVAL;
+		shell_error(sh, "bmc wifi: unknown argument %s", argv[1]);
+	}
+
+	return rc;
+}
+
+int config_bmc_wifi_ssid_set(const char *ssid)
+{
+	int rc;
+
+	if (ssid == NULL)
+		ssid = "";
+
+	if (strlen(ssid) > MAX_WIFI_SSID_LEN) {
+		LOG_ERR("Wi-Fi SSID too long");
+		return -EINVAL;
+	}
+
+	strlcpy(config_data.bmc_wifi_ssid, ssid, sizeof(config_data.bmc_wifi_ssid));
+	rc = config_write_str(CFG_BMC_WIFI_SSID, config_data.bmc_wifi_ssid);
+	if (rc < 0) {
+		LOG_ERR("Configuration could not be saved (err=%d)", rc);
+		return rc;
+	}
+
+	return 0;
+}
+
+#define CMD_HELP_BMC_WIFI_SSID				\
+	"BMC Wi-Fi SSID\n"				\
+	"Usage: bmc wifi ssid <SSID>"
+
+static int cmd_config_bmc_wifi_ssid(const struct shell *sh, size_t argc, char **argv)
+{
+	const char *ssid = NULL;
+	int rc;
+
+	ARG_UNUSED(argc);
+
+	if (!is_boot_finished()) {
+		shell_error(sh, "must wait for boot to finish");
+		return -EAGAIN;
+	}
+
+	if (argc >= 2)
+		ssid = argv[1];
+
+	rc = config_bmc_wifi_ssid_set(ssid);
+	if (rc) {
+		shell_error(sh, "Could not set Wi-Fi SSID (err=%d)", rc);
+		return rc;
+	}
+
+	shell_info(sh, "BMC Wi-Fi SSID updated");
+
+	return 0;
+}
+
+int config_bmc_wifi_password_set(const char *password)
+{
+	int rc;
+
+	if (password == NULL)
+		password = "";
+
+	if (strlen(password) > MAX_WIFI_PASSWORD_LEN) {
+		LOG_ERR("Wi-Fi password too long");
+		return -EINVAL;
+	}
+
+	strlcpy(config_data.bmc_wifi_password, password, sizeof(config_data.bmc_wifi_password));
+	rc = config_write_str(CFG_BMC_WIFI_PASSWORD, config_data.bmc_wifi_password);
+	if (rc < 0) {
+		LOG_ERR("Configuration could not be saved (err=%d)", rc);
+		return rc;
+	}
+
+	return 0;
+}
+
+#define CMD_HELP_BMC_WIFI_PASSWORD			\
+	"BMC Wi-Fi password\n"				\
+	"Usage: bmc wifi password <password>"
+
+static int cmd_config_bmc_wifi_password(const struct shell *sh, size_t argc, char **argv)
+{
+	const char *password = NULL;
+	int rc;
+
+	ARG_UNUSED(argc);
+
+	if (!is_boot_finished()) {
+		shell_error(sh, "must wait for boot to finish");
+		return -EAGAIN;
+	}
+
+	if (argc >= 2)
+		password = argv[1];
+
+	rc = config_bmc_wifi_password_set(password);
+	if (rc) {
+		shell_error(sh, "Could not set Wi-Fi password (err=%d)", rc);
+		return rc;
+	}
+
+	shell_info(sh, "BMC Wi-Fi password updated");
+
+	return 0;
+}
+
+static int cmd_config_bmc_wifi_show(const struct shell *sh, size_t argc, char **argv)
+{
+	const char *ssid = config_bmc_wifi_ssid();
+	const char *password = config_bmc_wifi_password();
+
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	if (ssid[0] == '\0') {
+		shell_print(sh, "Wi-Fi: no credentials stored (use `config bmc wifi ssid <ssid> and config bmc wifi password <password>`)");
+	} else {
+		shell_print(sh, "Wi-Fi SSID:     %s", ssid);
+		shell_print(sh, "Wi-Fi password: %s", password);
+	}
+	return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_config_bmc_wifi_cmds,
+	SHELL_CMD_ARG(enable,	NULL, CMD_HELP_BMC_WIFI_ENABLE, cmd_config_bmc_wifi_enable, 2, 0),
+	SHELL_CMD_ARG(ssid,	NULL, CMD_HELP_BMC_WIFI_SSID, cmd_config_bmc_wifi_ssid, 1, 1),
+	SHELL_CMD_ARG(password,	NULL, CMD_HELP_BMC_WIFI_PASSWORD, cmd_config_bmc_wifi_password, 1, 1),
+	SHELL_CMD(show,		NULL, "Show the stored Wi-Fi credentials.", cmd_config_bmc_wifi_show),
+	SHELL_SUBCMD_SET_END
+
+);
+#endif /* CONFIG_APP_WIFI */
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_config_bmc_cmds,
 	SHELL_CMD_ARG(password,		NULL, CMD_HELP_BMC_ADMIN_PASSWORD, cmd_config_bmc_password, 2, 0),
 	SHELL_CMD_ARG(hostname,		NULL, CMD_HELP_BMC_HOSTNAME, cmd_config_bmc_hostname, 2, 0),
@@ -637,6 +874,9 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_config_bmc_cmds,
 	SHELL_CMD_ARG(dhcpv4,		NULL, CMD_HELP_BMC_DHCP4, cmd_config_bmc_dhcp4, 2, 0),
 	SHELL_CMD_ARG(ntp,		NULL, CMD_HELP_BMC_NTP, cmd_config_bmc_ntp, 2, 0),
 	SHELL_CMD_ARG(ntp_server,	NULL, CMD_HELP_BMC_NTP_SERVER, cmd_config_bmc_ntp_server, 2, 0),
+#ifdef CONFIG_APP_WIFI
+	SHELL_CMD(wifi,			&sub_config_bmc_wifi_cmds, "Wi-Fi configuration commands.", NULL),
+#endif
 	SHELL_SUBCMD_SET_END
 );
 
@@ -858,6 +1098,26 @@ int config_init(void)
 		config_data.host_auto_poweron = 0;
 		config_write(CFG_HOST_AUTO_POWERON, config_data.host_auto_poweron);
 	}
+
+#ifdef CONFIG_APP_WIFI
+	rc = config_read(CFG_BMC_WIFI_ENABLE, config_data.bmc_wifi_enable);
+	if (rc < 0) {
+		/* Default to Wi-Fi enabled */
+		config_data.bmc_wifi_enable = 1;
+		config_write(CFG_BMC_WIFI_ENABLE, config_data.bmc_wifi_enable);
+	}
+	rc = config_read_str(CFG_BMC_WIFI_SSID, config_data.bmc_wifi_ssid);
+	if (rc < 0) {
+		strlcpy(config_data.bmc_wifi_ssid, CONFIG_DEFAULT_WIFI_SSID, sizeof(config_data.bmc_wifi_ssid));
+		config_write_str(CFG_BMC_WIFI_SSID, config_data.bmc_wifi_ssid);
+	}
+
+	rc = config_read_str(CFG_BMC_WIFI_PASSWORD, config_data.bmc_wifi_password);
+	if (rc < 0) {
+		strlcpy(config_data.bmc_wifi_password, CONFIG_DEFAULT_WIFI_PASSWORD, sizeof(config_data.bmc_wifi_password));
+		config_write_str(CFG_BMC_WIFI_PASSWORD, config_data.bmc_wifi_password);
+	}
+#endif
 
 	return 0;
 }

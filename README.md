@@ -27,6 +27,7 @@ WallaBMC currently supports the following hardware platforms:
 | --- | --- | --- |
 | **SiFive HiFive Premier P550 MCU** | hifive_premier_p550_mcu | RISC-V based platform |
 | **STM32 Nucleo F767ZI** | nucleo_f767zi | ARM Cortex-M7 development board (standalone, no host CPU) |
+| **Seeed Studio XIAO ESP32-C6** | xiao_esp32c6/esp32c6/hpcore | RISC-V, Wi-Fi 6, on a 21×17.5 mm board with USB-C; BMC console over USB Serial/JTAG (see [below](#seeed-xiao-esp32-c6)) |
 | **qemu** | qemu_cortex_m3 | see [run_qemu_ci.py](scripts/run_qemu_ci.py) |
 
 ### Screenshot
@@ -49,28 +50,7 @@ Required tools:
 * A toolchain for your target platform (ARM or RISC-V)
 * OpenOCD or appropriate flashing tool for your hardware
 
-
-### Quick instructions (existing zephyr build env)
-
-Clone the repo into your home dir
-
-```
-cd $HOME
-git clone https://github.com/tenstorrent/wallabmc.git
-```
-
-Go to your zephyr build dir:
-
-```
-west build --sysbuild -b nucleo_f767zi ~/wallabmc
-```
-Where `nucleo_f767zi` can be replaced with the boards in [Hardware Support](#hardware-support).
-
-See [flashing](#flashing) on how to install
-
 ### Installation
-
-For those without a pre-existing zephyr build env
 
 #### Initialize Workspace
 
@@ -84,23 +64,56 @@ cd workspace
 west update
 ```
 
-#### Building
+### Configuring
 
-To build the application, run the following command:
+WallaBMC and Zephyr have some configuration options. Defaults generally should be used,
+though there are some particular options for interest.
 
+`CONFIG_DEFAULT_ADMIN_PASSWORD` - By default a random default admin password is generated
+by the build. This can be overidden.
+
+`CONFIG_DEFAULT_WIFI_SSID` - If the board supports WIFI, provide a default SSID. This can
+be overidden by runtime configuration.
+
+`CONFIG_DEFAULT_WIFI_PASSWORD` - If the board supports WIFI, provide a default passowrd.
+This can be overidden by runtime configuration.
+
+### Building
+
+To build the application, run the following commands.
+
+Append config options to the end of the build string
+as such:
+
+    `-- -DCONFIG_DEFAULT_ADMIN_PASSWORD='"admin"'`
+
+Or run west `build -b <board> -t menuconfig` to change
+these options.
+
+#### Nucleo F767ZI
 ```
 cd zephyr
-west build --sysbuild -b nucleo_f767zi ../wallabmc
+west build -p --sysbuild -b nucleo_f767zi ../wallabmc
 ```
 
-Where `nucleo_f767zi` can be replaced with the boards in [Hardware Support](#Hardware-Support)
+#### P550 MCU
+```
+cd zephyr
+west build -p --sysbuild -b hifive_premier_p550_mcu ../wallabmc
+```
 
-### Supported boards:
+#### Seeed Studio XIAO ESP32-C6
+```
+# One-time: fetch the Espressif Wi-Fi/PHY binary blobs.
+west blobs fetch hal_espressif
 
-See the [Hardware Support](#Hardware-Support) section.
+cd zephyr
+west build -p -b xiao_esp32c6/esp32c6/hpcore ../wallabmc
+```
 
 ### Flashing
 
+#### Nucleo F767ZI and P550 MUC:
 ```
 west flash --runner openocd
 ```
@@ -113,6 +126,18 @@ flash write_image erase build/mcuboot/zephyr/zephyr.hex
 flash write_image erase build/wallabmc/zephyr/zephyr.signed.hex
 ```
 Also see instructions on [flashing the p550](boards/sifive/hifive_premier_p550_mcu/support/README.md)
+
+#### Seeed Studio XIAO ESP32-C6
+```
+west flash
+```
+
+Alternatively, use the `build/zephyr/zephyr.bin` file and run this
+command:
+
+```
+esptool write-flash 0 zephyr.bin
+```
 
 ### Running
 
