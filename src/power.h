@@ -24,6 +24,15 @@ int power_cycle(void);
 int power_reset(void);
 int power_force_off(void);
 
-bool power_get_state(void);
+/*
+ * What the BMC knows about host power: 1 on, 0 off, negative unknown
+ * (-ENODATA on a momentary-button board with no host-power-good input,
+ * otherwise the -errno of a failed read of that input). Level-driven
+ * boards report the level they drive, inactive at every BMC boot;
+ * momentary-button boards report the host-power-good input when the
+ * board wires one. Callers treat every negative value as unknown.
+ * Lock-free.
+ */
+int host_power_state(void);
 
 #endif

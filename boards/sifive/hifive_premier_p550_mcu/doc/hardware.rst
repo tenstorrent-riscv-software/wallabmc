@@ -584,7 +584,7 @@ Front panel LEDs (PD10, PD11)
      - Front-panel sleep/standby LED indicator
 
 **Implementation**: Add as LED nodes in DTS. Drive PWR_LED on when host power
-is on (track ``power_get_state()``), SLP_LED when host is powered off but BMC is
+is on (track ``host_power_state()``), SLP_LED when host is powered off but BMC is
 running (standby indicator).
 
 .. code-block:: dts
@@ -718,7 +718,7 @@ The MCU controls the board's power-on sequence:
 - Does not detect power button presses (PA12)
 - Does not detect SoC-initiated resets via PD6 interrupt
 - Does not deinit/reinit UARTs during SOM reset
-- ``power_get_state()`` returns software-requested state, not actual hardware state
+- ``host_power_state()`` returns software-requested state, not actual hardware state
 
 Known bugs in current DTS/overlay
 ===================================

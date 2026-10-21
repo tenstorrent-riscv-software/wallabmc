@@ -369,9 +369,28 @@ config APP_HOST_POWER_PULSE
 	bool "Host power pin uses momentary-button (pulse) semantics"
 	default n
 	help
-	  When set, `power on` / `power off` / `power force-off` pulse the
-	  host power GPIO instead of holding it at a sustained level. Use
-	  for boards with an ATX-style momentary power button input.
+	  When set, `power on` / `power off` send a short press on the
+	  host power GPIO instead of holding it at a sustained level,
+	  and `power force-off` / Redfish ForceOff hold it for a long
+	  press. Use for boards with an ATX-style momentary power
+	  button input.
+
+	  A momentary button gives the BMC no feedback. Without a
+	  host-power-good input the BMC cannot tell whether the host is
+	  on: `power on` / `power off` / Redfish On always press (a
+	  short press toggles, so On sent to a running host asks it to
+	  shut down), force-off and PowerCycle always hold the long
+	  press first, and host auto power-on is ignored at BMC boot
+	  because the press could shut down a host that is already
+	  running. Redfish then reports PowerState as null (the web UI
+	  shows Unknown) and `power state` reports unknown.
+
+	  To fix that, wire the host's power-good (PWROK) output to a
+	  GPIO and point the host-power-good devicetree alias at it.
+	  The BMC then reports what the input reads, skips an on, off
+	  or force-off press when the host already reads that state,
+	  refuses a reset when the host reads off, and presses at BMC
+	  boot for host auto power-on only when the host reads off.
 
 	  Without this, the GPIO is driven to a sustained level (the
 	  legacy nucleo LED-as-power-stand-in behaviour).
