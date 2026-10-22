@@ -75,9 +75,7 @@ explicitly:
 ```
 cd zephyr
 west build -b w5500_evb_pico2/rp2350a/m33 ../wallabmc --pristine \
-    -- -DCONFIG_DEFAULT_ADMIN_PASSWORD='"admin"' \
-       -DDTC_OVERLAY_FILE=../wallabmc/boards/w5500_evb_pico2.overlay \
-       -DCONF_FILE=../wallabmc/prj.conf\;../wallabmc/boards/w5500_evb_pico2.conf
+    -- -DCONFIG_DEFAULT_ADMIN_PASSWORD='"admin"'
 ```
 
 The build produces `build/zephyr/zephyr.uf2`.  To flash it:
