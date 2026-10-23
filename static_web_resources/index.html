@@ -1007,7 +1007,7 @@
 			setText('sys-cpu-model', sysData.ProcessorSummary ? sysData.ProcessorSummary.Model : 'N/A');
 
 			const pstate = document.getElementById('power-state-badge');
-			setText('power-state-badge', sysData.PowerState);
+			setText('power-state-badge', sysData.PowerState || 'Unknown');
 			pstate.className = 'badge ' + (sysData.PowerState || 'Unknown').replace(/\s/g, '');
 
 			setText('bmc-uuid', bmcData.UUID);
@@ -1234,7 +1234,11 @@
 		}
 
 		async function sendPowerAction(resetType) {
-			if (resetType !== 'On' && !confirm(`Confirm power action: ${resetType}?`))
+			// Power On goes unconfirmed only when the host is known to be off:
+			// on a momentary-button board a press toggles, and without a
+			// power-good input PowerState is null (shown as Unknown).
+			const knownOff = sysData && sysData.PowerState === 'Off';
+			if (!(resetType === 'On' && knownOff) && !confirm(`Confirm power action: ${resetType}?`))
 				return;
 
 			try {
@@ -1245,9 +1249,17 @@
 				const actionUri = `${systemIdPath}/Actions/ComputerSystem.Reset`;
 				await redfishCall(actionUri, 'POST', { "ResetType": resetType });
 
+				// What the host did with the press is not known until the next refresh
+				if (sysData)
+					sysData.PowerState = null;
+
 				refreshTimer = setTimeout(refreshSystemData, 3000);
 			} catch (err) {
-				alert(`Failed: ${err.message}`);
+				if (err.message.endsWith('503'))
+					alert("Another host power operation is in progress; try again in a few seconds.");
+				else
+					alert(`Failed: ${err.message}`);
+				refreshTimer = setTimeout(refreshSystemData, 3000);
 			}
 		}
 

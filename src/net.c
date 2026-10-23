@@ -23,6 +23,7 @@ LOG_MODULE_REGISTER(wallabmc_net, LOG_LEVEL_INF);
 #include "dhcp.h"
 #include "config.h"
 #include "ntp.h"
+#include "wifi.h"
 
 int net_do_set_hostname(const char *hostname)
 {
@@ -148,6 +149,18 @@ int net_init(void)
 	if (rc)
 		LOG_ERR("Net hostname set failed");
 
+	/*
+	 * Wi-Fi connect must be requested before net_config_init_app(),
+	 * which waits for the interface to come up. On Wi-Fi interfaces
+	 * that only happens once association completes, so that must
+	 * be first.
+	 */
+	LOG_DBG("Wi-Fi connect init");
+	if (wifi_init() < 0) {
+		LOG_ERR("Wi-Fi init failed");
+		/* Continue without failing */
+	}
+
 	if (config_bmc_default_ip4()) {
 		LOG_INF("Network static IP set");
 		rc = net_do_set_default_ip4_from_config();
@@ -185,4 +198,17 @@ int net_init(void)
 		LOG_ERR("NTP init failed");
 
 	return 0;
+}
+
+void net_exit(void)
+{
+	struct net_if *iface = net_if_get_default();
+	int rc;
+
+	wifi_exit();
+
+	rc = net_if_down(iface);
+	if (rc && rc != -EALREADY) {
+		LOG_WRN("iface down failed (rc=%d)", rc);
+	}
 }

@@ -27,6 +27,7 @@ WallaBMC currently supports the following hardware platforms:
 | --- | --- | --- |
 | **SiFive HiFive Premier P550 MCU** | hifive_premier_p550_mcu | RISC-V based platform |
 | **STM32 Nucleo F767ZI** | nucleo_f767zi | ARM Cortex-M7 development board (standalone, no host CPU) |
+| **Seeed Studio XIAO ESP32-C6** | xiao_esp32c6/esp32c6/hpcore | RISC-V, Wi-Fi 6, on a 21×17.5 mm board with USB-C; BMC console over USB Serial/JTAG (see [below](#seeed-xiao-esp32-c6)) |
 | **qemu** | qemu_cortex_m3 | see [run_qemu_ci.py](scripts/run_qemu_ci.py) |
 
 ### Screenshot
@@ -49,28 +50,7 @@ Required tools:
 * A toolchain for your target platform (ARM or RISC-V)
 * OpenOCD or appropriate flashing tool for your hardware
 
-
-### Quick instructions (existing zephyr build env)
-
-Clone the repo into your home dir
-
-```
-cd $HOME
-git clone https://github.com/tenstorrent/wallabmc.git
-```
-
-Go to your zephyr build dir:
-
-```
-west build --sysbuild -b nucleo_f767zi ~/wallabmc
-```
-Where `nucleo_f767zi` can be replaced with the boards in [Hardware Support](#hardware-support).
-
-See [flashing](#flashing) on how to install
-
 ### Installation
-
-For those without a pre-existing zephyr build env
 
 #### Initialize Workspace
 
@@ -84,74 +64,78 @@ cd workspace
 west update
 ```
 
-#### Building
+### Configuring
 
-To build the application, run the following command:
+WallaBMC and Zephyr have some configuration options. Defaults generally should be used,
+though there are some particular options for interest.
 
-```
-cd zephyr
-west build --sysbuild -b nucleo_f767zi ../wallabmc
-```
+`CONFIG_DEFAULT_ADMIN_PASSWORD` - By default a random default admin password is generated
+by the build. This can be overidden.
 
-Where `nucleo_f767zi` can be replaced with the boards in [Hardware Support](#Hardware-Support)
+`CONFIG_DEFAULT_WIFI_SSID` - If the board supports WIFI, provide a default SSID. This can
+be overidden by runtime configuration.
 
-### Supported boards:
+`CONFIG_DEFAULT_WIFI_PASSWORD` - If the board supports WIFI, provide a default passowrd.
+This can be overidden by runtime configuration.
 
-See the [Hardware Support](#Hardware-Support) section.
+### Building
 
-### Flashing
+Append config options to the end of the build string
+as such:
 
-```
-west flash --runner openocd
-```
+    `-- -DCONFIG_DEFAULT_ADMIN_PASSWORD='"admin"'`
 
-Alternatively, use the `build/wallabmc/zephyr/zephyr.signed.hex` and
-`build/mcuboot/zephyr/zephyr.hex` files, and run the openocd commands:
+Or run west `build -b <board> -t menuconfig` to change
+these options.
 
-```
-flash write_image erase build/mcuboot/zephyr/zephyr.hex
-flash write_image erase build/wallabmc/zephyr/zephyr.signed.hex
-```
-Also see instructions on [flashing the p550](boards/sifive/hifive_premier_p550_mcu/support/README.md)
+### Building
 
-### Running
+Different boards have different build steps. Refer to the
+board specific documentation for details.
 
-When the system has booted, a slow-blinking status LED indicates the system
-is running.
+[Nucleo F767ZI](boards/nucleo_f767zi.md)
+[P550 MCU](boards/hifive_premier_p550_mcu.md)
+[XIAO ESP32-C6](boards/xiao_esp32c6_hpcore.md)
+[QEMU](boards/qemu_cortex_m3.md)
 
-The Nucleo exposes an STM32 UART as a serial device over the USB port.
-WallaBMC puts the BMC console on this serial device that displays boot
-and log messages, and can be used to query and configure the device.
+## Running
 
-WallaBMC supports networking over ethernet and by default uses DHCP with the
-hostname ``wallabmc`` to get an IP address.
+Each board has different features and capabilities, full details in
+the board specific documentation. In general though, boards tend to:
 
-WallaBMC opens an HTTP (and possibly HTTPS) port, which provides Redfish and
-Web UI. The Web UI can also access the BMC console.
+* Be either standalone, that must have pins connected to a target to monitor
+  and interact with it as a BMC. Or they are integrated MCU controllers on a
+  system board that includes main CPUs, in the case of the P550 MCU.
 
-## BMC shell
+* Have a status LED, which blinks slowly to indicate WallaBMC is running.
 
-The Zephyr shell has been extended with wallabmc commands, and can be accessed
-via the MCU serial console or the WebUI or websocket.
+* Have a UART and power/reset control GPIOs.
+
+* Have some networking link, either ethernet or Wi-Fi. WallaBMC by default uses
+  DHCP with the hostname ``wallabmc`` to get an IP address lease.
+
+* Support HTTP (and some HTTPS), and provide Redfish and a Web UI which can
+  control the BMC and host system.
+
+* Support an MCU serial console, JTAG, and flashing interface over a USB
+  connection.  See board specific documentation for details about how to use
+  JTAG, console, flash, etc.
+  
+### BMC shell
+
+Most MCUs provide serial consoles via USB serial and via the Web UI. The Zephyr
+application shell and logging is connected to this console. The shell includes
+wallabmc commands.
 
 The websocket BMC shell endpoint URL is /console/bmc and supports ws and
 wss if ``CONFIG_APP_HTTPS`` (e.g., ``wss://wallabmc.local.net/console/bmc``).
 
-## Host serial console
-
-The Nucleo has USART6 connected to pins D0/D1 RX/TX on the CN10 connector.
-WallaBMC uses this as the host serial console which can be accessed with
-the WebUI terminal or telnet port 22. The pins would have to be connected
-to something useful (e.g., each other have a loopback UART that echoes back
-what is transmitted to it).
-
-The P550 host serial console UART is connected to an actual serial console
-UART on the host CPU.
+### Host serial console
 
 The websocket host console endpoint URL is /console/host and supports ws and
 wss if ``CONFIG_APP_HTTPS`` (e.g., ``wss://wallabmc.local.net/console/host``).
 
-### Settings and configuration
+### BMC shell settings and configuration
 
 * ``help`` command listing with hierarchical help (e.g., ``help config``).
 * ``config`` shell command can be used to configure the BMC.

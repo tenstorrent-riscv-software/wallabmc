@@ -27,7 +27,7 @@
 
 #include "config.h"
 #include "power.h"
-#include "rtc.h"
+#include "time.h"
 #include "sensors.h"
 #include "vpd.h"
 #include "git_sha.h"
@@ -1355,6 +1355,22 @@ REDFISH_HANDLER(systems_collection, "/redfish/v1/Systems",
 /*** /redfish/v1/Systems/system ***/
 static char serial_number[] = "12345";
 
+/*
+ * PowerState is encoded through JSON_TOK_ENCODED_OBJ so it can be null:
+ * Redfish's PowerState enum has no "Unknown" value and DSP0266 says a
+ * property whose value the service cannot determine is null. The
+ * encoder appends the string raw, hence the quotes.
+ */
+static const char *power_state_json(void)
+{
+	int state = host_power_state();
+
+	if (state < 0)
+		return "null";
+
+	return state ? "\"On\"" : "\"Off\"";
+}
+
 /* System Info: ResetType array */
 struct redfish_reset_action {
 	const char *target;
@@ -1460,7 +1476,7 @@ static const struct json_obj_descr computer_system_descr[] = {
 	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_computer_system, "PowerRestorePolicy",
 				  power_restore_policy, JSON_TOK_STRING),
 	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_computer_system, "PowerState",
-				  power_state, JSON_TOK_STRING),
+				  power_state, JSON_TOK_ENCODED_OBJ),
 	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_computer_system, "ProcessorSummary",
 				    processor_summary, processor_summary_descr),
 	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_computer_system, "MemorySummary",
@@ -1471,6 +1487,19 @@ static const struct json_obj_descr computer_system_descr[] = {
 				    actions, actions_descr),
 };
 
+/*
+ * PATCH parses with its own descriptor: PowerRestorePolicy is the only
+ * writable property, and json_obj_parse() cannot decode the ENCODED_OBJ
+ * PowerState above, so a PATCH that also carries the read-only
+ * PowerState string would otherwise get 400. Other properties are
+ * skipped, except that the parser rejects any top-level null value, so
+ * a body echoing a null PowerState still gets 400, as before.
+ */
+static const struct json_obj_descr computer_system_patch_descr[] = {
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_computer_system, "PowerRestorePolicy",
+				  power_restore_policy, JSON_TOK_STRING),
+};
+
 /* PATCH /redfish/v1/Systems/system */
 static int system_patch_handler(struct http_resource_user_data *user_data)
 {
@@ -1479,8 +1508,8 @@ static int system_patch_handler(struct http_resource_user_data *user_data)
 
 	memset(&payload, 0, sizeof(payload));
 	ret = json_obj_parse(user_data->data_buffer, user_data->data_len,
-			     computer_system_descr,
-			     ARRAY_SIZE(computer_system_descr), &payload);
+			     computer_system_patch_descr,
+			     ARRAY_SIZE(computer_system_patch_descr), &payload);
 	if (ret < 0) {
 		LOG_ERR("System: Bad JSON (err=%d)", ret);
 		return HTTP_400_BAD_REQUEST;
@@ -1526,7 +1555,7 @@ static int system_get_handler(struct http_resource_user_data *user_data)
 			.total_system_GiB = CONFIG_REDFISH_SYSTEM_MEMORY_GIB,
 		},
 		.power_restore_policy = config_host_auto_poweron() ? "AlwaysOn" : "AlwaysOff",
-		.power_state = power_get_state() ? "On" : "Off",
+		.power_state = power_state_json(),
 		.links = {
 			.chassis_len = 1,
 			.chassis = {
@@ -1597,7 +1626,7 @@ static int system_reset_post_handler(struct http_resource_user_data *user_data)
 	if (strcmp(payload.reset_type, "On") == 0) {
 		ret = power_set_state(true);
 	} else if (strcmp(payload.reset_type, "ForceOff") == 0) {
-		ret = power_set_state(false);
+		ret = power_force_off();
 	} else if (strcmp(payload.reset_type, "PowerCycle") == 0) {
 		ret = power_cycle();
 	} else if (strcmp(payload.reset_type, "ForceRestart") == 0) {
@@ -1614,6 +1643,13 @@ static int system_reset_post_handler(struct http_resource_user_data *user_data)
 	} else {
 		LOG_ERR("ComputerSystem.Reset: Bad reset type");
 		return HTTP_400_BAD_REQUEST;
+	}
+
+	if (ret == -EBUSY) {
+		/* Another host power operation holds the button; the client can retry */
+		LOG_WRN("ComputerSystem.Reset: type %s rejected, host power operation in progress",
+			payload.reset_type);
+		return HTTP_503_SERVICE_UNAVAILABLE;
 	}
 
 	if (ret < 0) {
@@ -1712,7 +1748,7 @@ static const struct json_obj_descr chassis_descr[] = {
 	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_chassis, "SerialNumber",
 				  serial_number, JSON_TOK_STRING),
 	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_chassis, "PowerState",
-				  power_state, JSON_TOK_STRING),
+				  power_state, JSON_TOK_ENCODED_OBJ),
 	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_chassis, "Sensors",
 				    sensors, link_descr),
 	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_chassis, "Links",
@@ -1731,7 +1767,7 @@ static int chassis_get_handler(struct http_resource_user_data *user_data)
 		.manufacturer = CONFIG_REDFISH_SYSTEM_MANUFACTURER,
 		.model = CONFIG_REDFISH_SYSTEM_MODEL,
 		.serial_number = serial_number,
-		.power_state = power_get_state() ? "On" : "Off",
+		.power_state = power_state_json(),
 		.sensors = {
 			.odata_id = "/redfish/v1/Chassis/1/Sensors"
 		},

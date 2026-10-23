@@ -27,6 +27,14 @@ static int sntp_set_clocks(struct sntp_time *ts)
 
 	tspec.tv_sec = ts->seconds;
 	tspec.tv_nsec = ((uint64_t)ts->fraction * NSEC_PER_SEC) >> 32;
+
+	ret = rtc_set_from_timespec(&tspec);
+	if (ret != 0) {
+		if (ret != -ENODEV)
+			LOG_ERR("Updating RTC failed (err=%d)", ret);
+		ret = 0; /* Don't fail for any RTC errors */
+	}
+
 	ret = sys_clock_settime(SYS_CLOCK_REALTIME, &tspec);
 	if (ret < 0) {
 		LOG_ERR("Setting sys clock failed (err=%d)", ret);
@@ -34,12 +42,6 @@ static int sntp_set_clocks(struct sntp_time *ts)
 	}
 
 	LOG_INF("Time synced to NTP");
-
-	ret = rtc_set_from_clock();
-	if (ret < 0) {
-		LOG_ERR("Updating RTC to clock failed (err=%d)", ret);
-		ret = 0; /* Don't really need to update RTC, so don't fail */
-	}
 
 	return ret;
 }

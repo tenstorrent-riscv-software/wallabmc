@@ -344,9 +344,10 @@ config PERSISTENT_STORAGE
 	select FLASH
 	select FLASH_MAP
 	# select FLASH_SHELL if SHELL # ~4kB flash
-	# Writing internal flash that is used for XIP requires
-	# that the flash driver is relocated into RAM.
-	select CODE_DATA_RELOCATION_SRAM
+	# STM32 internal flash is also XIP, so the flash driver has to be
+	# relocated into RAM to write it. ESP32's flash driver disables
+	# the XIP cache internally, so no relocation is needed there.
+	select CODE_DATA_RELOCATION_SRAM if SOC_FLASH_STM32
 	# XXX: May need to enable these, or disable IRQs in the flash
 	# erase and program functions while flash is being written.
 	# select SRAM_VECTOR_TABLE
@@ -363,6 +364,78 @@ config REBOOT
 config POWEROFF
 	bool
 	default y if HAS_POWEROFF
+
+config APP_HOST_POWER_PULSE
+	bool "Host power pin uses momentary-button (pulse) semantics"
+	default n
+	help
+	  When set, `power on` / `power off` send a short press on the
+	  host power GPIO instead of holding it at a sustained level,
+	  and `power force-off` / Redfish ForceOff hold it for a long
+	  press. Use for boards with an ATX-style momentary power
+	  button input.
+
+	  A momentary button gives the BMC no feedback. Without a
+	  host-power-good input the BMC cannot tell whether the host is
+	  on: `power on` / `power off` / Redfish On always press (a
+	  short press toggles, so On sent to a running host asks it to
+	  shut down), force-off and PowerCycle always hold the long
+	  press first, and host auto power-on is ignored at BMC boot
+	  because the press could shut down a host that is already
+	  running. Redfish then reports PowerState as null (the web UI
+	  shows Unknown) and `power state` reports unknown.
+
+	  To fix that, wire the host's power-good (PWROK) output to a
+	  GPIO and point the host-power-good devicetree alias at it.
+	  The BMC then reports what the input reads, skips an on, off
+	  or force-off press when the host already reads that state,
+	  refuses a reset when the host reads off, and presses at BMC
+	  boot for host auto power-on only when the host reads off.
+
+	  Without this, the GPIO is driven to a sustained level (the
+	  legacy nucleo LED-as-power-stand-in behaviour).
+
+config APP_HOST_POWER_PULSE_MS
+	int "Short-press duration for power on/off (ms)"
+	default 200
+	depends on APP_HOST_POWER_PULSE
+
+config APP_HOST_POWER_FORCE_OFF_MS
+	int "Long-press duration for power force-off (ms)"
+	default 6000
+	depends on APP_HOST_POWER_PULSE
+	help
+	  The thread that asked for the force-off sleeps through the
+	  press; for Redfish that is the HTTP server thread. Keep this
+	  plus the 2 s PowerCycle gap below
+	  HTTP_SERVER_CLIENT_INACTIVITY_TIMEOUT (default 10 s) or other
+	  HTTP clients are dropped while the button is held.
+
+config APP_WIFI
+	bool "Connect to Wi-Fi at boot from BMC config"
+	select WIFI
+	select NET_L2_WIFI_MGMT
+	help
+	  Enable Wi-Fi support. Default SSID and password can be set by
+	  updating config or passing cmdline build options (see README.md).
+	  SSID and password can be changed and persisted in nonvolatile
+	  configuration.
+
+config APP_WIFI_DISABLE_POWER_SAVING
+	bool "Wi-Fi disable power saving"
+	depends on APP_WIFI
+	help
+	  Disable WIFI Power Saving, can be set by board config.
+
+config DEFAULT_WIFI_SSID
+	string "Default WiFi SSID (blank for none)"
+	depends on APP_WIFI
+	default ""
+
+config DEFAULT_WIFI_PASSWORD
+	string "Default WiFi password (blank for none)"
+	depends on APP_WIFI
+	default ""
 
 config JTAG
 	bool "JTAG support"
