@@ -75,6 +75,7 @@ static const struct gpio_dt_spec status_led = GPIO_DT_SPEC_GET(STATUS_LED, gpios
 #define LED_BLINK_PERIOD_PAUSE  (LED_BLINK_PERIOD_DOT)
 #define LED_BLINK_PERIOD_LETTER (3 * LED_BLINK_PERIOD_DOT)
 #define LED_BLINK_PERIOD_WORD   (7 * LED_BLINK_PERIOD_DOT)
+#define LED_BLINK_PERIOD_PANIC_US 50000
 
 static void led_dash(void)
 {
@@ -130,6 +131,18 @@ static void status_led_blink(bool fail)
 		status_led_okay();
 }
 
+static void status_led_panic(void)
+{
+	if (!gpio_is_ready_dt(&status_led))
+		return;
+
+	while (1) {
+		gpio_pin_toggle_dt(&status_led);
+		/* No sleeping in panic handler */
+		k_busy_wait(LED_BLINK_PERIOD_PANIC_US);
+	}
+}
+
 static int status_led_init(void)
 {
 	int ret;
@@ -155,11 +168,29 @@ static void status_led_blink(bool fail)
 {
 }
 
+static void status_led_panic(void)
+{
+}
+
 static int status_led_init(void)
 {
 	return 0;
 }
 #endif /* DT_NODE_HAS_STATUS_OKAY(STATUS_LED) */
+
+void k_sys_fatal_error_handler(unsigned int reason,
+			       const struct arch_esf *esf)
+{
+	ARG_UNUSED(esf);
+
+	LOG_PANIC();
+	LOG_ERR("Halting system!");
+	(void)irq_lock();
+	status_led_panic();
+	for (;;)
+		;
+	CODE_UNREACHABLE;
+}
 
 FUNC_NORETURN int bmc_reboot(void)
 {
