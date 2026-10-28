@@ -8,6 +8,7 @@ int console_logger_init(void);
 ssize_t host_console_read(uint8_t *buf, size_t size, uint64_t *ppos);
 int host_console_seek_end(uint64_t *ppos);
 ssize_t host_console_write(const uint8_t *buf, size_t size);
+bool host_console_available(void);
 #else
 static inline int console_logger_init(void) { return 0; }
 #endif

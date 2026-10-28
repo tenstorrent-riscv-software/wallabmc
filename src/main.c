@@ -70,16 +70,12 @@ static void print_banner(void)
 static const struct gpio_dt_spec status_led = GPIO_DT_SPEC_GET(STATUS_LED, gpios);
 
 /* LED blinking thread */
-#define LED_BLINK_STACK_SIZE 256
-#define LED_BLINK_PRIORITY   (CONFIG_NUM_PREEMPT_PRIORITIES - 1)
 #define LED_BLINK_PERIOD_DOT    250
 #define LED_BLINK_PERIOD_DASH   (3 * LED_BLINK_PERIOD_DOT)
 #define LED_BLINK_PERIOD_PAUSE  (LED_BLINK_PERIOD_DOT)
 #define LED_BLINK_PERIOD_LETTER (3 * LED_BLINK_PERIOD_DOT)
 #define LED_BLINK_PERIOD_WORD   (7 * LED_BLINK_PERIOD_DOT)
-
-static K_KERNEL_STACK_DEFINE(led_blink_stack, LED_BLINK_STACK_SIZE);
-static struct k_thread led_blink_thread_data;
+#define LED_BLINK_PERIOD_PANIC_US 50000
 
 static void led_dash(void)
 {
@@ -97,16 +93,8 @@ static void led_dot(void)
 	k_msleep(LED_BLINK_PERIOD_PAUSE);
 }
 
-static void led_blink_thread(void *p1, void *p2, void *p3)
+static void status_led_okay(void)
 {
-	ARG_UNUSED(p1);
-	ARG_UNUSED(p2);
-	ARG_UNUSED(p3);
-
-	if (!gpio_is_ready_dt(&status_led)) {
-		return;
-	}
-
 	// Flash OK in morse code: - - -   - . -
 	while (1) {
 		// O
@@ -126,6 +114,35 @@ static void led_blink_thread(void *p1, void *p2, void *p3)
 	}
 }
 
+static void status_led_fail(void)
+{
+	while (1)
+		led_dot();
+}
+
+static void status_led_blink(bool fail)
+{
+	if (!gpio_is_ready_dt(&status_led))
+		return;
+
+	if (fail)
+		status_led_fail();
+	else
+		status_led_okay();
+}
+
+static void status_led_panic(void)
+{
+	if (!gpio_is_ready_dt(&status_led))
+		return;
+
+	while (1) {
+		gpio_pin_toggle_dt(&status_led);
+		/* No sleeping in panic handler */
+		k_busy_wait(LED_BLINK_PERIOD_PANIC_US);
+	}
+}
+
 static int status_led_init(void)
 {
 	int ret;
@@ -137,26 +154,44 @@ static int status_led_init(void)
 			LOG_INF("Could not configure LED1 GPIO\n");
 			return -1;
 		}
+		gpio_pin_set_dt(&status_led, 1);
 	} else {
 		LOG_INF("LED1 GPIO not ready\n");
 		return -1;
 	}
 
-	k_thread_create(&led_blink_thread_data, led_blink_stack,
-			K_THREAD_STACK_SIZEOF(led_blink_stack),
-			led_blink_thread,
-			NULL, NULL, NULL,
-			LED_BLINK_PRIORITY, 0, K_NO_WAIT);
-	k_thread_name_set(&led_blink_thread_data, "led_blink");
-
 	return 0;
 }
+
 #else /* DT_NODE_HAS_STATUS_OKAY(STATUS_LED) */
+static void status_led_blink(bool fail)
+{
+}
+
+static void status_led_panic(void)
+{
+}
+
 static int status_led_init(void)
 {
 	return 0;
 }
 #endif /* DT_NODE_HAS_STATUS_OKAY(STATUS_LED) */
+
+void k_sys_fatal_error_handler(unsigned int reason,
+			       const struct arch_esf *esf)
+{
+	ARG_UNUSED(esf);
+
+	LOG_PANIC();
+	LOG_ERR("Halting system!");
+	(void)irq_lock();
+	status_led_panic();
+	for (;;)
+		;
+	CODE_UNREACHABLE;
+}
+
 FUNC_NORETURN int bmc_reboot(void)
 {
 	net_exit();
@@ -342,18 +377,34 @@ SHELL_CMD_REGISTER(hop, NULL, "Make the wallaby hop across the screen.", cmd_hop
 
 int main(void)
 {
+	/*
+	 * If fail_status is set, the host will not be auto-powered on,
+	 * and the status LED will blink fast. The system might still be
+	 * usable or at least debuggable, so don't fail entirely.
+	 *
+	 * Expected or tolerable errors can avoid setting fail_status.
+	 */
+	bool fail_status = false;
+
 	print_banner();
+
+	/* Turn on the status LED early */
+	LOG_DBG("LED init");
+	if (status_led_init() < 0) {
+		LOG_ERR("LED init failed");
+		/* Continue */
+	}
 
 	LOG_DBG("RTC init");
 	if (rtc_init() < 0) {
 		LOG_ERR("RTC init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	LOG_DBG("VPD init");
 	if (vpd_init() < 0) {
 		LOG_ERR("VPD init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	LOG_DBG("Filesystem init");
@@ -364,49 +415,47 @@ int main(void)
 	LOG_DBG("Config init");
 	if (config_init() < 0) {
 		LOG_ERR("Config init failed");
-		return -1;
+		fail_status = true;
 	}
+
+	/*
+	 * After the basics are up
+	 */
 
 	LOG_DBG("Button init");
 	if (button_init() < 0) {
 		LOG_ERR("Button init failed");
-		/* Continue */
+		fail_status = true;
 	}
 
 	LOG_DBG("Network init");
 	if (net_init() < 0) {
 		LOG_ERR("Network init failed");
-		/* Continue -- shell stays up so the user can `wifi connect`. */
+		/* Continue -- shell stays up so the user can `wifi connect`, etc. */
 	}
 
 	LOG_DBG("Power init");
 	if (power_init() < 0) {
 		LOG_ERR("Power init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	LOG_DBG("Reset init");
 	if (reset_init() < 0) {
 		LOG_ERR("Reset init failed");
-		return -1;
-	}
-
-	LOG_DBG("LED init");
-	if (status_led_init() < 0) {
-		LOG_ERR("LED init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	LOG_DBG("JTAG init");
 	if (jtag_init() < 0) {
 		LOG_ERR("JTAG init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	LOG_DBG("Console logger init");
 	if (console_logger_init() < 0) {
 		LOG_ERR("Console logger init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	/*
@@ -417,8 +466,13 @@ int main(void)
 	 * If auto-poweron fails, a message will be logged. Don't
 	 * fail BMC boot, because the admin may want to diagnose
 	 * and try power cycling etc.
+	 *
+	 * If something has failed, don't try to auto-poweron.
 	 */
-	power_auto_poweron();
+	if (fail_status)
+		LOG_WRN("Boot failures encountered, not powering on host");
+	else
+		power_auto_poweron();
 
 	/*
 	 * Interfaces to outside world are brought up after auto poweron, so
@@ -429,24 +483,28 @@ int main(void)
 	LOG_DBG("HTTP server init");
 	if (app_http_server_init() < 0) {
 		LOG_ERR("HTTP server init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	LOG_DBG("Console bridge init");
 	if (console_bridge_init() < 0) {
 		LOG_ERR("Console bridge init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	LOG_DBG("Console bridge WS init");
 	if (console_bridge_ws_init() < 0) {
 		LOG_ERR("Console bridge WS init failed");
-		return -1;
+		fail_status = true;
 	}
 
 	boot_finished = true;
 
 	LOG_INF("BMC boot complete");
+
+	status_led_blink(fail_status);
+
+	/* If no LED, this will fall through and exit the main thread */
 
 	return 0;
 }
