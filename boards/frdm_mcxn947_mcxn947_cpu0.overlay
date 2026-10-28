@@ -1,0 +1,59 @@
+// NXP FRDM-MCXN947
+
+/ {
+	chosen {
+		zephyr,rtc = &rtc;
+	};
+
+	aliases {
+		status-led = &blue_led;
+		power-gpio-1 = &green_led;
+		reset-gpio-1 = &red_led;
+		reset-button = &user_button_2;
+
+		/*
+		 * No physical "host" is wired to this devkit. Route the
+		 * host console bridge to the Arduino-header UART
+		 * (flexcomm2_lpuart2 / D0-D1) so it's available if a real
+		 * host's serial console is wired up later.
+		 */
+		host-console-uart = &flexcomm2_lpuart2;
+	};
+};
+
+&red_led {
+	status = "okay";
+};
+
+&green_led {
+	status = "okay";
+};
+
+&blue_led {
+	status = "okay";
+};
+
+&user_button_2 {
+	status = "okay";
+};
+
+&rtc {
+	status = "okay";
+};
+
+&flexcomm2_lpuart2 {
+	status = "okay";
+};
+
+/* On-board LAN8741 PHY + RJ45 (disabled by default in the base board dts) */
+&enet_mdio {
+	status = "okay";
+};
+
+&phy {
+	status = "okay";
+};
+
+&enet_mac {
+	status = "okay";
+};
