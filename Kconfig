@@ -24,6 +24,32 @@ config DNS_SERVER1
 	string
 	default "1.1.1.1" if APP_DNS_RESOLVE
 
+config APP_BLOCKING_WORKQUEUE
+	bool
+	help
+	  Workqueue for blocking, low priority work (see src/workq.h). Work
+	  that may block for a long time, such as DNS lookups and network
+	  requests, runs here rather than on the system workqueue. Selected
+	  by its users.
+
+if APP_BLOCKING_WORKQUEUE
+
+config APP_BLOCKING_WORKQUEUE_STACK_SIZE
+	int "Blocking workqueue stack size"
+	default 2560 if WIFI
+	default 2048
+	help
+	  Without a TX traffic-class thread (NET_TC_TX_COUNT=0) the whole
+	  transmit path down into the Ethernet or Wi-Fi driver runs on this
+	  stack, so size it for the deepest network send a work item makes.
+	  The NTP sync's DNS lookup on STM32 Ethernet measures about 1.2 KB
+	  at -Os and 1.4 KB at -O2 (-fstack-usage). The ESP32 Wi-Fi driver
+	  sends through a closed blob below what -fstack-usage can see (the
+	  Zephyr side alone is 1.6 to 1.8 KB) and the XIAO build has no
+	  stack guard, so Wi-Fi builds get 2560 B.
+
+endif
+
 config APP_NTP
 	bool "NTP time synchronisation"
 	select SNTP
