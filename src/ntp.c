@@ -11,7 +11,6 @@
 LOG_MODULE_REGISTER(wallabmc_ntp, LOG_LEVEL_DBG);
 
 #include <zephyr/net/socket.h>
-#include <zephyr/net/socket_service.h>
 #include <zephyr/net/sntp.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -19,6 +18,7 @@ LOG_MODULE_REGISTER(wallabmc_ntp, LOG_LEVEL_DBG);
 #include "ntp.h"
 #include "rtc.h"
 #include "config.h"
+#include "workq.h"
 
 static int sntp_set_clocks(struct sntp_time *ts)
 {
@@ -72,8 +72,6 @@ static int dns_query(const char *host, uint16_t port, int family, int socktype,
 	return 0;
 }
 
-#define NTP_TIMEOUT_MS 3000
-#define NTP_SERVER_ADDR "pool.ntp.org"
 #define NTP_SERVER_PORT 123
 
 static int do_sntp(int family)
@@ -124,7 +122,15 @@ err:
 static bool ntp_synced;
 static bool ntp_started;
 static uint32_t ntp_interval_sec = 20; /* Initially 20 second sync so the network can come up */
-static struct k_work_delayable ntp_sync_work;
+
+/*
+ * A sync blocks in getaddrinfo() and sntp_query() for up to about 6 s,
+ * so it runs on the blocking workqueue. On the system workqueue it
+ * would hold up every other item there, the DNS resolver's own query
+ * timeout included.
+ */
+static void ntp_sync_work_handler(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(ntp_sync_work, ntp_sync_work_handler);
 
 static void ntp_sync_work_handler(struct k_work *work)
 {
@@ -137,13 +143,7 @@ static void ntp_sync_work_handler(struct k_work *work)
 		}
 	}
 
-#if 0
-#if defined(CONFIG_NET_IPV6)
-	do_sntp(AF_INET6);
-#endif
-#endif
-
-	k_work_schedule(&ntp_sync_work, K_SECONDS(ntp_interval_sec));
+	k_work_schedule_for_queue(&blocking_work_q, &ntp_sync_work, K_SECONDS(ntp_interval_sec));
 }
 
 bool ntp_is_synced(void)
@@ -156,9 +156,7 @@ int start_ntp(void)
 	if (ntp_started)
 		return 0;
 
-	k_work_init_delayable(&ntp_sync_work, ntp_sync_work_handler);
-
-	k_work_schedule(&ntp_sync_work, K_SECONDS(ntp_interval_sec));
+	k_work_schedule_for_queue(&blocking_work_q, &ntp_sync_work, K_SECONDS(ntp_interval_sec));
 
 	ntp_started = true;
 
@@ -172,6 +170,7 @@ int stop_ntp(void)
 	if (!ntp_started)
 		return 0;
 
+	/* Waits out an in-flight attempt; it cannot re-arm after this */
 	k_work_cancel_delayable_sync(&ntp_sync_work, &work_sync);
 
 	ntp_interval_sec = 1; /* Wait 1 second if we start again */
