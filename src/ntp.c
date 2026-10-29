@@ -119,9 +119,15 @@ err:
 	return rv;
 }
 
+/* Sync intervals, in seconds */
+#define NTP_INTERVAL_BOOT	20		/* First attempt: let the network come up */
+#define NTP_INTERVAL_RESTART	1		/* After stop_ntp()/start_ntp(), e.g. server changed */
+#define NTP_INTERVAL_RETRY	60		/* After a failed attempt */
+#define NTP_INTERVAL_SYNCED	(6 * 60 * 60)	/* After a successful one */
+
 static bool ntp_synced;
 static bool ntp_started;
-static uint32_t ntp_interval_sec = 20; /* Initially 20 second sync so the network can come up */
+static uint32_t ntp_interval_sec = NTP_INTERVAL_BOOT;
 
 /*
  * A sync blocks in getaddrinfo() and sntp_query() for up to about 6 s,
@@ -134,13 +140,11 @@ static K_WORK_DELAYABLE_DEFINE(ntp_sync_work, ntp_sync_work_handler);
 
 static void ntp_sync_work_handler(struct k_work *work)
 {
-	ntp_interval_sec = 60; /* Upgrade to 1 minute sync until synced */
 	if (do_sntp(AF_INET) == 0) {
-		if (!ntp_synced) {
-			ntp_synced = true;
-			/* Upgrade to 6 hour resync */
-			ntp_interval_sec = 6*60*60;
-		}
+		ntp_synced = true;
+		ntp_interval_sec = NTP_INTERVAL_SYNCED;
+	} else {
+		ntp_interval_sec = NTP_INTERVAL_RETRY;
 	}
 
 	k_work_schedule_for_queue(&blocking_work_q, &ntp_sync_work, K_SECONDS(ntp_interval_sec));
@@ -173,7 +177,7 @@ int stop_ntp(void)
 	/* Waits out an in-flight attempt; it cannot re-arm after this */
 	k_work_cancel_delayable_sync(&ntp_sync_work, &work_sync);
 
-	ntp_interval_sec = 1; /* Wait 1 second if we start again */
+	ntp_interval_sec = NTP_INTERVAL_RESTART;
 
 	ntp_started = false;
 
