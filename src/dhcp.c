@@ -31,6 +31,15 @@ static struct net_mgmt_event_callback mgmt_cb;
 
 static struct net_dhcpv4_option_callback dhcp_cb;
 
+/*
+ * Serialises starting and stopping the client with the deferred restart
+ * below. config_bmc_use_dhcp4_set() clears the setting before it takes
+ * this lock to stop the client, so a deferred restart that still sees the
+ * setting on is ordered before that stop, and one that sees it off does
+ * nothing.
+ */
+static K_MUTEX_DEFINE(dhcp4_lock);
+
 static void start_dhcpv4_client(struct net_if *iface, void *user_data)
 {
 	ARG_UNUSED(user_data);
@@ -120,21 +129,55 @@ int dhcp4_init(void)
 
 int start_dhcp4(void)
 {
+	k_mutex_lock(&dhcp4_lock, K_FOREVER);
 	net_if_foreach(start_dhcpv4_client, NULL);
+	k_mutex_unlock(&dhcp4_lock);
 
 	return 0;
 }
 
 int restart_dhcp4(void)
 {
+	k_mutex_lock(&dhcp4_lock, K_FOREVER);
 	net_if_foreach(restart_dhcpv4_client, NULL);
+	k_mutex_unlock(&dhcp4_lock);
+
+	return 0;
+}
+
+/*
+ * Runs from the system work queue. The Wi-Fi connect-result handler that
+ * queues it is called with the net_mgmt callback lock held, and the DHCP
+ * client takes that lock under its own lock when its first interface
+ * starts or its last one stops (every start and stop here), so restarting
+ * from the handler could deadlock against a concurrent start or stop from
+ * the shell or Redfish.
+ */
+static void restart_work_fn(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	k_mutex_lock(&dhcp4_lock, K_FOREVER);
+	/* The setting may have changed since the restart was queued. */
+	if (config_bmc_use_dhcp4())
+		net_if_foreach(restart_dhcpv4_client, NULL);
+	k_mutex_unlock(&dhcp4_lock);
+}
+
+static K_WORK_DEFINE(restart_work, restart_work_fn);
+
+int restart_dhcp4_deferred(void)
+{
+	k_work_submit(&restart_work);
 
 	return 0;
 }
 
 int stop_dhcp4(void)
 {
+	k_mutex_lock(&dhcp4_lock, K_FOREVER);
 	net_if_foreach(stop_dhcpv4_client, NULL);
+	k_mutex_unlock(&dhcp4_lock);
 
 	return 0;
 }
