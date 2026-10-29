@@ -126,6 +126,18 @@ err:
 #define NTP_INTERVAL_SYNCED	(6 * 60 * 60)	/* After a successful one */
 
 static bool ntp_synced;
+
+/*
+ * start_ntp() and stop_ntp() run on the shell and HTTP server threads,
+ * and stop_ntp() sleeps through an in-flight attempt. One thread at a
+ * time in either: ntp_started is written by both, and two threads
+ * cancelling the same work item leaves one asleep forever (Zephyr
+ * 4.4.1 wakes one canceller per completion; fixed upstream in
+ * 0d6e89e998). The handler must not take this lock: stop_ntp() holds
+ * it while waiting for the handler to return. The synchronous cancel,
+ * not the lock, orders the handler's ntp_interval_sec write.
+ */
+static K_MUTEX_DEFINE(ntp_lock);
 static bool ntp_started;
 static uint32_t ntp_interval_sec = NTP_INTERVAL_BOOT;
 
@@ -157,12 +169,15 @@ bool ntp_is_synced(void)
 
 int start_ntp(void)
 {
-	if (ntp_started)
-		return 0;
+	k_mutex_lock(&ntp_lock, K_FOREVER);
 
-	k_work_schedule_for_queue(&blocking_work_q, &ntp_sync_work, K_SECONDS(ntp_interval_sec));
+	if (!ntp_started) {
+		k_work_schedule_for_queue(&blocking_work_q, &ntp_sync_work,
+					  K_SECONDS(ntp_interval_sec));
+		ntp_started = true;
+	}
 
-	ntp_started = true;
+	k_mutex_unlock(&ntp_lock);
 
 	return 0;
 }
@@ -171,15 +186,16 @@ int stop_ntp(void)
 {
 	struct k_work_sync work_sync;
 
-	if (!ntp_started)
-		return 0;
+	k_mutex_lock(&ntp_lock, K_FOREVER);
 
-	/* Waits out an in-flight attempt; it cannot re-arm after this */
-	k_work_cancel_delayable_sync(&ntp_sync_work, &work_sync);
+	if (ntp_started) {
+		/* Waits out an in-flight attempt; it cannot re-arm after this */
+		k_work_cancel_delayable_sync(&ntp_sync_work, &work_sync);
+		ntp_interval_sec = NTP_INTERVAL_RESTART;
+		ntp_started = false;
+	}
 
-	ntp_interval_sec = NTP_INTERVAL_RESTART;
-
-	ntp_started = false;
+	k_mutex_unlock(&ntp_lock);
 
 	return 0;
 }
