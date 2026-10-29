@@ -16,6 +16,7 @@ LOG_MODULE_REGISTER(wallabmc_wifi, LOG_LEVEL_INF);
 #include <zephyr/shell/shell.h>
 
 #include "config.h"
+#include "dhcp.h"
 #include "wifi.h"
 
 #define WIFI_MGMT_EVENTS (NET_EVENT_WIFI_CONNECT_RESULT | \
@@ -41,6 +42,20 @@ static void wifi_event_handler(struct net_mgmt_event_callback *cb,
 		} else {
 			LOG_INF("Wi-Fi connected");
 			wifi_connected = true;
+			/*
+			 * The driver's own DHCP automation is off
+			 * (CONFIG_ESP32_WIFI_STA_AUTO_DHCPV4=n) and the
+			 * interface stays up across associations, so the
+			 * DHCP client cannot tell that the link changed.
+			 * Renew the lease when DHCP is enabled: this may
+			 * be a different network, or the server may have
+			 * forgotten us while we were away. This handler
+			 * runs under the net_mgmt callback lock, so the
+			 * restart is deferred; the worker checks the
+			 * setting under the same lock `config bmc dhcpv4`
+			 * uses, so a concurrent disable wins.
+			 */
+			restart_dhcp4_deferred();
 		}
 		break;
 	case NET_EVENT_WIFI_DISCONNECT_RESULT:
