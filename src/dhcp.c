@@ -73,7 +73,7 @@ static void handler(struct net_mgmt_event_callback *cb,
 {
 	int i = 0;
 
-	if (mgmt_event != NET_EVENT_IPV4_ADDR_ADD) {
+	if (mgmt_event != NET_EVENT_IPV4_DHCP_BOUND) {
 		return;
 	}
 
@@ -115,7 +115,7 @@ static void option_handler(struct net_dhcpv4_option_callback *cb,
 int dhcp4_init(void)
 {
 	net_mgmt_init_event_callback(&mgmt_cb, handler,
-				     NET_EVENT_IPV4_ADDR_ADD);
+				     NET_EVENT_IPV4_DHCP_BOUND);
 	net_mgmt_add_event_callback(&mgmt_cb);
 
 	net_dhcpv4_init_option_callback(&dhcp_cb, option_handler,
