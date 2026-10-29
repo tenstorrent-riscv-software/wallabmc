@@ -54,6 +54,7 @@ config APP_NTP
 	bool "NTP time synchronisation"
 	select SNTP
 	select APP_DNS_RESOLVE
+	select APP_BLOCKING_WORKQUEUE
 	# Could these options reduce our code?
 	#CONFIG_NET_CONFIG_CLOCK_SNTP_INIT=y
 	#CONFIG_NET_CONFIG_CLOCK_SNTP_SET_RTC=y
