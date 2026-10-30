@@ -72,10 +72,12 @@ static const struct gpio_dt_spec power_good_gpio = { 0 };
  * is told -EBUSY rather than queued, because a press that lands
  * seconds later arrives at a host whose state the first operation has
  * already changed; the operator is better told to look and try again.
- * The thread that asked sleeps through the hold itself: the system
- * workqueue can be busy for seconds (sntp_query() in ntp.c) and would
- * stretch a 200 ms press. Callers are threads (shell, HTTP server,
- * main) and must stay so; a mutex cannot be taken from an ISR.
+ * The thread that asked sleeps through the hold itself rather than
+ * queueing it: an item on the system workqueue must not sleep, and the
+ * blocking workqueue runs one item at a time at low priority, so a
+ * press queued there could sit behind an NTP attempt for seconds.
+ * Callers are threads (shell, HTTP server, main) and must stay so; a
+ * mutex cannot be taken from an ISR.
  *
  * Taken by the public entry points. The static power_on(),
  * power_off(), force_off() and power_pulse() workers assume it is

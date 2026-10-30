@@ -27,6 +27,7 @@ LOG_MODULE_REGISTER(wallabmc, LOG_LEVEL_INF);
 #include "console_bridge.h"
 #include "console_bridge_ws.h"
 #include "vpd.h"
+#include "workq.h"
 #include "git_sha.h"
 
 #define STATUS_LED DT_ALIAS(status_led)
@@ -371,6 +372,16 @@ int main(void)
 	if (button_init() < 0) {
 		LOG_ERR("Button init failed");
 		/* Continue */
+	}
+
+	/*
+	 * Before anything can schedule onto it: a delayed item is dropped
+	 * silently if its queue has still not started when it expires.
+	 */
+	LOG_DBG("Blocking workqueue init");
+	if (blocking_work_q_init() < 0) {
+		LOG_ERR("Blocking workqueue init failed");
+		return -1;
 	}
 
 	LOG_DBG("Network init");

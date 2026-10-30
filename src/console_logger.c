@@ -50,13 +50,7 @@ static struct console_log host_console_log;
 static uint8_t log_buffer[CONFIG_APP_CONSOLE_LOG_SIZE];
 
 /* Delay notifying console readers of new data to coalesce data */
-/*
- * TODO: NTP puts long running blocking work on the system workqueue
- * which could block the coalescing delay wakeup and cause the console
- * to hang for long periods. So set this to 0 for now (no delay) until
- * NTP blocking work is moved to another workqueue.
- */
-#define RX_DELAY_TIME_MS 0
+#define RX_DELAY_TIME_MS 5
 
 static void rx_data_work_fn(struct k_work *work)
 {

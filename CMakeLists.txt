@@ -66,6 +66,10 @@ target_sources_ifdef(CONFIG_APP_SENSORS app PRIVATE
 	src/sensors.c
 )
 
+target_sources_ifdef(CONFIG_APP_BLOCKING_WORKQUEUE app PRIVATE
+	src/workq.c
+)
+
 target_sources_ifdef(CONFIG_APP_NTP app PRIVATE
 	src/ntp.c
 )
