@@ -23,7 +23,7 @@ static const struct device *rtc = DEVICE_DT_GET(RTC_NODE);
 
 int rtc_set_from_timespec(const struct timespec *ts)
 {
-	static struct rtc_time tm;
+	struct rtc_time tm;
 	time_t t;
 	int ret;
 
