@@ -177,6 +177,9 @@ static void console_bridge_daemon_thread(void *a, void *b, void *c)
 
 int console_bridge_init(void)
 {
+	if (!host_console_available())
+		return -ENODEV;
+
 	LOG_INF("Starting console bridge daemon (host console UART -> TCP port %d)...", CONSOLE_BRIDGE_PORT);
 
 	k_thread_create(&console_bridge_thread_data, console_bridge_stack_area,

@@ -282,6 +282,9 @@ HTTP_RESOURCE_DEFINE(host_console_ws_https, https_service,
 
 int console_bridge_ws_init(void)
 {
+	if (!host_console_available())
+		return -ENODEV;
+
 	LOG_INF("Starting host console websocket");
 
 	memset(&host_websocket, 0, sizeof(host_websocket));

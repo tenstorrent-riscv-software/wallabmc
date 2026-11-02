@@ -15,6 +15,7 @@ LOG_MODULE_REGISTER(console_logger, LOG_LEVEL_INF);
 #include <string.h>
 
 #include "synch.h"
+#include "console_logger.h"
 
 #define UART_NODE DT_ALIAS(host_console_uart)
 static const struct device *uart_dev = DEVICE_DT_GET(UART_NODE);
@@ -29,6 +30,7 @@ static const struct gpio_dt_spec host_console_uart_muxsel_gpio = GPIO_DT_SPEC_GE
 
 struct console_log {
 	const struct device *uart;
+	bool enabled;
 	uint64_t received;
 	int size;
 	struct k_spinlock rx_lock;
@@ -116,6 +118,9 @@ static ssize_t console_log_read(struct console_log *log, uint8_t *buf, size_t si
 	ssize_t ret = 0;
 	size_t copied = 0;
 
+	if (!host_console_available())
+		return -ENODEV;
+
 	key = k_spin_lock(&log->rx_lock);
 	if (pos > log->received) {
 		ret = -EINVAL;
@@ -152,6 +157,9 @@ out:
 
 static ssize_t console_log_write(struct console_log *log, const uint8_t *buf, size_t size)
 {
+	if (!host_console_available())
+		return -ENODEV;
+
 	k_mutex_lock(&log->tx_mutex, K_FOREVER);
 
 	log->tx_buf = buf;
@@ -181,6 +189,9 @@ int host_console_seek_end(uint64_t *ppos)
 	struct console_log *log = &host_console_log;
 	k_spinlock_key_t key;
 
+	if (!host_console_available())
+		return -ENODEV;
+
 	key = k_spin_lock(&log->rx_lock);
 	*ppos = log->received;
 	k_spin_unlock(&log->rx_lock, key);
@@ -203,6 +214,13 @@ static const struct uart_config uart_cfg = {
 	.flow_ctrl = UART_CFG_FLOW_CTRL_NONE,
 };
 
+bool host_console_available(void)
+{
+	struct console_log *log = &host_console_log;
+
+	return log->enabled;
+}
+
 int console_logger_init(void)
 {
 	struct console_log *log = &host_console_log;
@@ -215,7 +233,6 @@ int console_logger_init(void)
 		return -1;
 	}
 
-	memset(log, 0, sizeof(struct console_log));
 	log->uart = uart_dev;
 	log->size = sizeof(log_buffer);
 	k_mutex_init(&log->tx_mutex);
@@ -252,6 +269,8 @@ int console_logger_init(void)
 	}
 
 	uart_irq_rx_enable(uart_dev);
+
+	log->enabled = true;
 
 	LOG_INF("UART IRQ configured for console logger");
 
