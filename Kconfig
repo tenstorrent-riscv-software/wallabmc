@@ -143,6 +143,28 @@ config MBEDTLS_SSL_MAX_CONTENT_LEN
 	depends on APP_CRYPTO
 	default 4096
 
+config APP_HTTP
+	bool "Serve web and redfish over plain HTTP" if APP_HTTPS
+	default !APP_HTTPS
+	depends on REDFISH || APP_WEB
+	help
+	  Serve the web UI, Redfish and websocket consoles over plain HTTP
+	  on port 80. Credentials (HTTP Basic auth, websocket auth) are sent
+	  in the clear over this port.
+
+	  If disabled, port 80 still accepts connections but redirects
+	  requests for the web UI and Redfish to the same URL over HTTPS.
+	  Websocket consoles aren't available over plain HTTP.
+
+	  Can only be disabled if APP_HTTPS is enabled. Defaults to disabled
+	  if APP_HTTPS is enabled, otherwise it's always enabled.
+
+# Room for the captured Authorization, X-Auth-Code and Host headers at
+# HTTP_SERVER_MAX_HEADER_LEN.
+config HTTP_SERVER_CAPTURE_HEADER_BUFFER_SIZE
+	int
+	default 192
+
 config APP_HTTPS
 	bool "HTTPS support for web and redfish"
 	default y

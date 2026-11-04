@@ -273,12 +273,8 @@ struct http_resource_detail_websocket ws_res_detail_console_service = {
 	.data_buffer_len = sizeof(ws_recv_buf_console_service),
 	.user_data = &host_websocket,
 };
-HTTP_RESOURCE_DEFINE(host_console_ws_http, http_service,
-		     "/console/host", &ws_res_detail_console_service);
-#if defined(CONFIG_APP_HTTPS)
-HTTP_RESOURCE_DEFINE(host_console_ws_https, https_service,
-		     "/console/host", &ws_res_detail_console_service);
-#endif
+ALL_HTTP_RESOURCE_DEFINE(host_console_ws, "/console/host",
+			 &ws_res_detail_console_service);
 
 int console_bridge_ws_init(void)
 {
