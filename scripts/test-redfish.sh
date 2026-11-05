@@ -125,7 +125,10 @@ run_redfishtool_tests() {
 	have redfishtool || return
 
 	echo ">>> redfishtool tests"
-	local rt=(redfishtool -r "$IP" -u "$USER" -p "$PASS" -vvvv)
+	# A TLS handshake with the BMC can take several seconds, longer than
+	# redfishtool's default 3 second connect timeout (-W 1:3), which it
+	# also applies to the handshake. Allow 10 seconds.
+	local rt=(redfishtool -r "$IP" -u "$USER" -p "$PASS" -W 1:10 -vvvv)
 	local cmd
 	# $cmd is intentionally unquoted so multi-word commands split into args.
 	for cmd in \
