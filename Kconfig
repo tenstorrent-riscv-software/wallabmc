@@ -24,10 +24,34 @@ config DNS_SERVER1
 	string
 	default "1.1.1.1" if APP_DNS_RESOLVE
 
+config APP_BLOCKING_WORKQUEUE
+	bool
+	help
+	  Workqueue for blocking, low priority work (see src/workq.h). Work
+	  that may block for a long time, such as DNS lookups and network
+	  requests, runs here rather than on the system workqueue. Selected
+	  by its users.
+
+if APP_BLOCKING_WORKQUEUE
+
+config APP_BLOCKING_WORKQUEUE_STACK_SIZE
+	int "Blocking workqueue stack size"
+	default 2048
+	help
+	  Without a TX traffic-class thread (NET_TC_TX_COUNT=0) the whole
+	  transmit path down into the Ethernet or Wi-Fi driver runs on this
+	  stack, so size it for the deepest network send a work item makes.
+	  The NTP sync's DNS lookup on STM32 Ethernet measures about 1.2 KB
+	  at -Os and 1.4 KB at -O2 (-fstack-usage). Boards with a deeper
+	  driver path, or less RAM, override this.
+
+endif
+
 config APP_NTP
 	bool "NTP time synchronisation"
 	select SNTP
 	select APP_DNS_RESOLVE
+	select APP_BLOCKING_WORKQUEUE
 	# Could these options reduce our code?
 	#CONFIG_NET_CONFIG_CLOCK_SNTP_INIT=y
 	#CONFIG_NET_CONFIG_CLOCK_SNTP_SET_RTC=y
