@@ -120,7 +120,7 @@ the board specific documentation. In general though, boards tend to:
 * Support an MCU serial console, JTAG, and flashing interface over a USB
   connection.  See board specific documentation for details about how to use
   JTAG, console, flash, etc.
-  
+
 ### BMC shell
 
 Most MCUs provide serial consoles via USB serial and via the Web UI. The Zephyr
