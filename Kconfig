@@ -44,6 +44,8 @@ config APP_CRYPTO
 	select MBEDTLS_ENABLE_HEAP
 	select MBEDTLS_SSL_PROTO_TLS1_2
 	select MBEDTLS_SSL_ALPN
+	# Curve-specific P-256 reduction, much faster TLS handshakes.
+	select MBEDTLS_ECP_NIST_OPTIM if PSA_WANT_KEY_TYPE_ECC_KEY_PAIR_BASIC
 	# XXX: Should HAVE_TIME_DATE be enabled? Test if it prevents HTTPS
 	# connections if the RTC is wrong, in which case it might not be
 	# feasible if we need webui to set time.
