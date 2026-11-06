@@ -229,6 +229,13 @@ config HTTP_SERVER_MAX_CLIENTS
 	int
 	default 8 if APP_WEB
 
+# The web UI polls Redfish every 10 s. With the 10 s Zephyr default the
+# server drops the idle connection just before each poll, so every poll
+# needs a new connection and TLS handshake.
+config HTTP_SERVER_CLIENT_INACTIVITY_TIMEOUT
+	int
+	default 30 if APP_WEB
+
 config APP_WEB
 	bool "Web server"
 	default y
@@ -410,8 +417,9 @@ config APP_HOST_POWER_FORCE_OFF_MS
 	  The thread that asked for the force-off sleeps through the
 	  press; for Redfish that is the HTTP server thread. Keep this
 	  plus the 2 s PowerCycle gap below
-	  HTTP_SERVER_CLIENT_INACTIVITY_TIMEOUT (default 10 s) or other
-	  HTTP clients are dropped while the button is held.
+	  HTTP_SERVER_CLIENT_INACTIVITY_TIMEOUT (30 s with APP_WEB,
+	  otherwise 10 s) or other HTTP clients are dropped while the
+	  button is held.
 
 config APP_WIFI
 	bool "Connect to Wi-Fi at boot from BMC config"
