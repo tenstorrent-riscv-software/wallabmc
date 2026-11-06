@@ -820,8 +820,18 @@
 		// request at a time anyway.
 		let redfishQueue = Promise.resolve();
 
-		function redfishCall(path, method = 'GET', body = null) {
-			const call = redfishQueue.then(() => redfishRequest(path, method, body));
+		// Thrown for a poll's request that was dropped because polling stopped
+		class PollStopped extends Error {}
+
+		// A request made by a poll (poll true) is dropped without being sent
+		// if polling has stopped by the time it reaches the front of the
+		// queue, eg. the tab was hidden or the user logged out.
+		function redfishCall(path, method = 'GET', body = null, poll = false) {
+			const call = redfishQueue.then(() => {
+				if (poll && !pollingActive())
+					throw new PollStopped();
+				return redfishRequest(path, method, body);
+			});
 			redfishQueue = call.catch(() => {});
 			return call;
 		}
@@ -970,12 +980,7 @@
 				tempChart.destroy();
 			tempChart = null;
 
-			if (refreshTimer)
-				clearTimeout(refreshTimer);
-			refreshTimer = null;
-			if (sensorsTimer)
-				clearTimeout(sensorsTimer);
-			sensorsTimer = null;
+			stopPolling();
 			closeTerminal(true);
 			closeTerminal(false);
 
@@ -992,20 +997,67 @@
 			pw.focus();
 		}
 
-		async function refreshSystemData() {
+		// Poll the BMC only while logged in and the browser tab is visible
+		function pollingActive() {
+			return basicAuthHeader !== null && !document.hidden &&
+			       !document.getElementById('dashboard-section').classList.contains('hidden');
+		}
+
+		function stopPolling() {
+			if (refreshTimer)
+				clearTimeout(refreshTimer);
+			refreshTimer = null;
+			if (sensorsTimer)
+				clearTimeout(sensorsTimer);
+			sensorsTimer = null;
+		}
+
+		function scheduleRefresh(ms) {
+			if (refreshTimer)
+				clearTimeout(refreshTimer);
+			refreshTimer = null;
+			if (pollingActive())
+				refreshTimer = setTimeout(pollRefresh, ms);
+		}
+
+		function scheduleSensors(ms) {
+			if (sensorsTimer)
+				clearTimeout(sensorsTimer);
+			sensorsTimer = null;
+			if (pollingActive() && tempChart)
+				sensorsTimer = setTimeout(pollSensors, ms);
+		}
+
+		// Polls, started by a timer or by the tab being shown. One that is
+		// still running is not started again, so showing the tab during a
+		// poll doesn't make the same requests twice.
+		let refreshPoll = null;
+		let sensorsPoll = null;
+
+		function pollRefresh() {
+			refreshPoll ??= refreshSystemData(true).finally(() => refreshPoll = null);
+		}
+
+		function pollSensors() {
+			sensorsPoll ??= updateSensors(true).finally(() => sensorsPoll = null);
+		}
+
+		async function refreshSystemData(poll = false) {
 			if (refreshTimer)
 				clearTimeout(refreshTimer);
 			refreshTimer = null;
 
 			try {
-				sysData = await redfishCall(systemIdPath);
-				bmcData = await redfishCall(managerIdPath);
-				networkProtocolData = await redfishCall(networkProtocolIdPath);
+				sysData = await redfishCall(systemIdPath, 'GET', null, poll);
+				bmcData = await redfishCall(managerIdPath, 'GET', null, poll);
+				networkProtocolData = await redfishCall(networkProtocolIdPath, 'GET', null, poll);
 				if (ethIdPath)
-					ethData = await redfishCall(ethIdPath);
+					ethData = await redfishCall(ethIdPath, 'GET', null, poll);
 			} catch (err) {
+				if (err instanceof PollStopped)
+					return;
 				console.error("Refresh failed", err);
-				refreshTimer = setTimeout(refreshSystemData, 3000);
+				scheduleRefresh(3000);
 				return;
 			}
 
@@ -1046,7 +1098,7 @@
 				}
 			}
 
-			refreshTimer = setTimeout(refreshSystemData, 10000);
+			scheduleRefresh(10000);
 		}
 
 		async function refreshConfigData() {
@@ -1138,7 +1190,7 @@
 			tempChart.update();
 		}
 
-		async function updateSensors() {
+		async function updateSensors(poll = false) {
 			if (sensorsTimer)
 				clearTimeout(sensorsTimer);
 			sensorsTimer = null;
@@ -1146,7 +1198,7 @@
 			const errorDiv = document.getElementById('error-msg');
 
 			try {
-				const sensorData = await redfishCall(`${sensorTempIdPath}`);
+				const sensorData = await redfishCall(`${sensorTempIdPath}`, 'GET', null, poll);
 				const temperature = sensorData.Reading;
 				if (temperature === undefined)
 					throw new Error('Could not find "Reading" in Redfish response.');
@@ -1154,10 +1206,12 @@
 				errorDiv.innerText = ''; // Clear any previous errors
 
 			} catch (error) {
+				if (error instanceof PollStopped)
+					return;
 				console.error('Failed to fetch Redfish data:', error);
 				errorDiv.innerText = `Error fetching data: ${error.message}. See console for details.`;
 			}
-			sensorsTimer = setTimeout(updateSensors, SENSORS_POLL_INTERVAL_MS);
+			scheduleSensors(SENSORS_POLL_INTERVAL_MS);
 		}
 
 		async function saveBmcConfig() {
@@ -1266,13 +1320,13 @@
 				if (sysData)
 					sysData.PowerState = null;
 
-				refreshTimer = setTimeout(refreshSystemData, 3000);
+				scheduleRefresh(3000);
 			} catch (err) {
 				if (err.message.endsWith('503'))
 					alert("Another host power operation is in progress; try again in a few seconds.");
 				else
 					alert(`Failed: ${err.message}`);
-				refreshTimer = setTimeout(refreshSystemData, 3000);
+				scheduleRefresh(3000);
 			}
 		}
 
@@ -1288,7 +1342,7 @@
 				bmcData = await redfishCall(managerIdPath);
 				await redfishCall(managerIdPath, 'PATCH', { "DateTime": new_date });
 
-				refreshTimer = setTimeout(refreshSystemData, 3000);
+				scheduleRefresh(3000);
 			} catch (err) {
 				alert(`Failed: ${err.message}`);
 			}
@@ -1301,6 +1355,18 @@
 				errEl.style.display = 'inline';
 			} else {
 				errEl.style.display = 'none';
+			}
+		});
+
+		// Stop polling the BMC while the browser tab is hidden, and refresh
+		// straight away when it is shown again.
+		document.addEventListener('visibilitychange', () => {
+			if (document.hidden) {
+				stopPolling();
+			} else if (pollingActive()) {
+				pollRefresh();
+				if (tempChart)
+					pollSensors();
 			}
 		});
 
