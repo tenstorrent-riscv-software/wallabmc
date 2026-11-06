@@ -970,12 +970,7 @@
 				tempChart.destroy();
 			tempChart = null;
 
-			if (refreshTimer)
-				clearTimeout(refreshTimer);
-			refreshTimer = null;
-			if (sensorsTimer)
-				clearTimeout(sensorsTimer);
-			sensorsTimer = null;
+			stopPolling();
 			closeTerminal(true);
 			closeTerminal(false);
 
@@ -992,6 +987,37 @@
 			pw.focus();
 		}
 
+		// Poll the BMC only while logged in and the browser tab is visible
+		function pollingActive() {
+			return basicAuthHeader !== null && !document.hidden &&
+			       !document.getElementById('dashboard-section').classList.contains('hidden');
+		}
+
+		function stopPolling() {
+			if (refreshTimer)
+				clearTimeout(refreshTimer);
+			refreshTimer = null;
+			if (sensorsTimer)
+				clearTimeout(sensorsTimer);
+			sensorsTimer = null;
+		}
+
+		function scheduleRefresh(ms) {
+			if (refreshTimer)
+				clearTimeout(refreshTimer);
+			refreshTimer = null;
+			if (pollingActive())
+				refreshTimer = setTimeout(refreshSystemData, ms);
+		}
+
+		function scheduleSensors(ms) {
+			if (sensorsTimer)
+				clearTimeout(sensorsTimer);
+			sensorsTimer = null;
+			if (pollingActive() && tempChart)
+				sensorsTimer = setTimeout(updateSensors, ms);
+		}
+
 		async function refreshSystemData() {
 			if (refreshTimer)
 				clearTimeout(refreshTimer);
@@ -1005,7 +1031,7 @@
 					ethData = await redfishCall(ethIdPath);
 			} catch (err) {
 				console.error("Refresh failed", err);
-				refreshTimer = setTimeout(refreshSystemData, 3000);
+				scheduleRefresh(3000);
 				return;
 			}
 
@@ -1046,7 +1072,7 @@
 				}
 			}
 
-			refreshTimer = setTimeout(refreshSystemData, 10000);
+			scheduleRefresh(10000);
 		}
 
 		async function refreshConfigData() {
@@ -1157,7 +1183,7 @@
 				console.error('Failed to fetch Redfish data:', error);
 				errorDiv.innerText = `Error fetching data: ${error.message}. See console for details.`;
 			}
-			sensorsTimer = setTimeout(updateSensors, SENSORS_POLL_INTERVAL_MS);
+			scheduleSensors(SENSORS_POLL_INTERVAL_MS);
 		}
 
 		async function saveBmcConfig() {
@@ -1266,13 +1292,13 @@
 				if (sysData)
 					sysData.PowerState = null;
 
-				refreshTimer = setTimeout(refreshSystemData, 3000);
+				scheduleRefresh(3000);
 			} catch (err) {
 				if (err.message.endsWith('503'))
 					alert("Another host power operation is in progress; try again in a few seconds.");
 				else
 					alert(`Failed: ${err.message}`);
-				refreshTimer = setTimeout(refreshSystemData, 3000);
+				scheduleRefresh(3000);
 			}
 		}
 
@@ -1288,7 +1314,7 @@
 				bmcData = await redfishCall(managerIdPath);
 				await redfishCall(managerIdPath, 'PATCH', { "DateTime": new_date });
 
-				refreshTimer = setTimeout(refreshSystemData, 3000);
+				scheduleRefresh(3000);
 			} catch (err) {
 				alert(`Failed: ${err.message}`);
 			}
@@ -1301,6 +1327,18 @@
 				errEl.style.display = 'inline';
 			} else {
 				errEl.style.display = 'none';
+			}
+		});
+
+		// Stop polling the BMC while the browser tab is hidden, and refresh
+		// straight away when it is shown again.
+		document.addEventListener('visibilitychange', () => {
+			if (document.hidden) {
+				stopPolling();
+			} else if (pollingActive()) {
+				refreshSystemData();
+				if (tempChart)
+					updateSensors();
 			}
 		});
 
