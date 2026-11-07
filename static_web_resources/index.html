@@ -813,7 +813,20 @@
 		const setLoading = (isLoading) => document.getElementById('loading-bar').style.width = isLoading ? '100%' : '0%';
 
 		// Redfish API Fetcher
-		async function redfishCall(path, method = 'GET', body = null) {
+		// Make one Redfish request at a time. Zephyr's HTTP/2 server can't decode
+		// a second request that arrives before the client has seen the server's
+		// SETTINGS (no HPACK dynamic table, Zephyr issue #124221), so requests sent
+		// together on a new connection fail with 500. The server handles one
+		// request at a time anyway.
+		let redfishQueue = Promise.resolve();
+
+		function redfishCall(path, method = 'GET', body = null) {
+			const call = redfishQueue.then(() => redfishRequest(path, method, body));
+			redfishQueue = call.catch(() => {});
+			return call;
+		}
+
+		async function redfishRequest(path, method, body) {
 			setLoading(true);
 			try {
 				const options = {
