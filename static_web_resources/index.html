@@ -753,6 +753,7 @@
 
 		let tempChart = null;
 		const SENSORS_POLL_INTERVAL_MS = 10000;
+		const SENSORS_WINDOW_MS = 5 * 60 * 1000; // Time span shown on the chart
 
 		let refreshTimer = null;
 		let sensorsTimer = null;
@@ -1110,23 +1111,39 @@
 			tempChart = new Chart(ctx, {
 				type: 'line',
 				data: {
-					labels: [],
 					datasets: [{
 						label: 'Temperature (°C)',
-						data: [],
+						data: [], // { x: time in ms, y: temperature }
 						borderColor: 'rgb(255, 99, 132)',
 						backgroundColor: 'rgba(255, 99, 132, 0.2)',
 						borderWidth: 2,
 						pointRadius: 3,
 						fill: false,
-						tension: 0.3 // Smooth curves
+						tension: 0.3, // Smooth curves
+						// Break the line where readings are missing, eg. while the tab was hidden
+						spanGaps: SENSORS_POLL_INTERVAL_MS * 1.5,
+						clip: 6 // Draw the newest point fully, not cut at the plot edge
 					}]
 				},
 				options: {
 					responsive: true,
+					layout: { padding: { right: 6 } }, // Room for the newest point
 					scales: {
+						// Real time axis. A linear scale of ms timestamps rather than
+						// Chart.js's time scale, which needs a separate date adapter.
 						x: {
-							title: { display: false, text: 'Time' }
+							type: 'linear',
+							title: { display: false, text: 'Time' },
+							// One tick per whole minute in the window
+							afterBuildTicks: (axis) => {
+								const ticks = [];
+								for (let t = Math.ceil(axis.min / 60000) * 60000; t <= axis.max; t += 60000)
+									ticks.push({ value: t });
+								axis.ticks = ticks;
+							},
+							ticks: {
+								callback: (value) => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+							}
 						},
 						y: {
 							title: { display: true, text: 'Celsius' },
@@ -1140,6 +1157,11 @@
 					plugins: {
 						legend: {
 							display: false
+						},
+						tooltip: {
+							callbacks: {
+								title: (items) => new Date(items[0].parsed.x).toLocaleTimeString()
+							}
 						}
 					}
 				}
@@ -1147,20 +1169,17 @@
 		}
 
 		function updateChart(tempValue) {
-			const SENSORS_DATAPOINTS = 30;
-			const now = new Date();
-			const timeString = now.toLocaleTimeString();
+			const now = Date.now();
+			const data = tempChart.data.datasets[0].data;
 
-			// Add new data
-			tempChart.data.labels.push(timeString);
-			tempChart.data.datasets[0].data.push(tempValue);
+			data.push({ x: now, y: tempValue });
 
-			// Remove oldest data point if we exceed the max length (creates the scroll)
-			if (tempChart.data.labels.length > SENSORS_DATAPOINTS) {
-				tempChart.data.labels.shift();
-				tempChart.data.datasets[0].data.shift();
-			}
+			// Drop readings that have scrolled out of the window
+			while (data.length > 0 && data[0].x < now - SENSORS_WINDOW_MS)
+				data.shift();
 
+			tempChart.options.scales.x.min = now - SENSORS_WINDOW_MS;
+			tempChart.options.scales.x.max = now;
 			tempChart.update();
 		}
 
