@@ -44,7 +44,8 @@
 		}
 
 		body.dark-mode input,
-		body.dark-mode select {
+		body.dark-mode select,
+		body.dark-mode textarea {
 			background-color: #374151;
 			color: #f9fafb;
 		}
@@ -233,7 +234,21 @@
 			transition: border-color 0.2s, box-shadow 0.2s;
 		}
 
-		input:focus, select:focus {
+		textarea {
+			width: 100%;
+			box-sizing: border-box;
+			min-height: 9em;
+			margin-top: 15px;
+			padding: 8px 12px;
+			font-family: monospace;
+			font-size: 0.8rem;
+			border-radius: var(--radius);
+			border: 1px solid var(--border);
+			background-color: #fff;
+			resize: vertical;
+		}
+
+		input:focus, select:focus, textarea:focus {
 			border-color: var(--primary);
 			outline: none;
 			box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
@@ -710,6 +725,63 @@
 								<button onclick="refreshConfigData()">Discard Changes</button>
 							</div>
 						</div>
+
+						<div class="card hidden" id="cert-card">
+							<h2>HTTPS Certificate</h2>
+							<div class="grid-4-col">
+								<div class="info-item"><span class="info-item-label">Subject</span><span class="data-value" id="cert-subject">Loading...</span></div>
+								<div class="info-item"><span class="info-item-label">Issuer</span><span class="data-value" id="cert-issuer">Loading...</span></div>
+								<div class="info-item"><span class="info-item-label">Type</span><span class="data-value" id="cert-type">Loading...</span></div>
+								<div class="info-item"><span class="info-item-label">Valid Until</span><span class="data-value" id="cert-valid-to">Loading...</span></div>
+							</div>
+							<div class="info-item" style="margin-top: 15px;">
+								<span class="info-item-label">SHA-256 Fingerprint</span>
+								<span class="data-value" id="cert-fingerprint" style="word-break: break-all;">Loading...</span>
+								<small>Before trusting the certificate, check this matches the output of <code>bmc cert</code> on the BMC's serial console.</small>
+							</div>
+							<h3>Certificate Signing Request</h3>
+							<div class="grid-4-col">
+								<div class="info-item">
+									<label for="csr-cn">Common Name</label>
+									<input type="text" id="csr-cn" placeholder="bmc.example.com">
+								</div>
+								<div class="info-item">
+									<label for="csr-alt-names">Alternative Names</label>
+									<input type="text" id="csr-alt-names" placeholder="Current names" title="DNS names or IPv4 addresses, separated by commas">
+								</div>
+								<div class="info-item">
+									<label for="csr-o">Organization</label>
+									<input type="text" id="csr-o">
+								</div>
+								<div class="info-item">
+									<label for="csr-ou">Organizational Unit</label>
+									<input type="text" id="csr-ou">
+								</div>
+								<div class="info-item">
+									<label for="csr-l">City</label>
+									<input type="text" id="csr-l">
+								</div>
+								<div class="info-item">
+									<label for="csr-st">State</label>
+									<input type="text" id="csr-st">
+								</div>
+								<div class="info-item">
+									<label for="csr-c">Country</label>
+									<input type="text" id="csr-c" maxlength="2" placeholder="Two letter code">
+								</div>
+							</div>
+							<div class="controls-grid">
+								<button onclick="generateCsr()">Generate CSR</button>
+								<button class="secondary hidden" id="csr-copy" onclick="copyCsr()">Copy CSR</button>
+							</div>
+							<textarea id="cert-csr" class="hidden" readonly></textarea>
+							<h3>Install Signed Certificate</h3>
+							<small>The CA must sign with ECDSA, and every certificate in the chain must have a P-256 key.</small>
+							<textarea id="cert-install" placeholder="Paste the PEM certificate signed by your CA, followed by any intermediate certificates"></textarea>
+							<div class="controls-grid">
+								<button class="danger" onclick="installCert()">Install Certificate</button>
+							</div>
+						</div>
 					</div>
 
 					<div id="section-sensors" class="hidden">
@@ -847,7 +919,15 @@
 				if (!response.ok) {
 					if (response.status === 401)
 						throw new Error("Authentication Failed");
-					throw new Error(`Redfish Error: ${response.status}`);
+					let message = `Redfish Error: ${response.status}`;
+					try {
+						const err = await response.json();
+						if (err.error && err.error.message)
+							message = err.error.message;
+					} catch (e) {
+						// No JSON error body
+					}
+					throw new Error(message);
 				}
 
 				if (response.status === 204)
@@ -871,6 +951,8 @@
 			if (!redfishRoot.AccountService)
 				throw new Error("No redfish AccountService found.");
 			accountServiceIdPath = redfishRoot.AccountService['@odata.id'];
+			certServiceIdPath = redfishRoot.CertificateService ?
+				redfishRoot.CertificateService['@odata.id'] : null;
 
 			// Validate credentials
 			const accountService = await redfishCall(accountServiceIdPath);
@@ -1076,7 +1158,117 @@
 			scheduleRefresh(10000);
 		}
 
+		let certServiceIdPath = null;
+		let certService = null;
+		let certIdPath = null;
+
+		function certName(dn) {
+			if (!dn)
+				return '';
+			return [['CN', dn.CommonName], ['O', dn.Organization],
+				['OU', dn.OrganizationalUnit], ['L', dn.City],
+				['ST', dn.State], ['C', dn.Country]]
+				.filter(([k, v]) => v).map(([k, v]) => `${k}=${v}`).join(', ');
+		}
+
+		async function refreshCertData() {
+			if (!certServiceIdPath || !networkProtocolData.HTTPS ||
+			    !networkProtocolData.HTTPS.Certificates)
+				return;
+
+			try {
+				certService = await redfishCall(certServiceIdPath);
+				const certs = await redfishCall(networkProtocolData.HTTPS.Certificates['@odata.id']);
+				if (!certs.Members || certs.Members.length === 0)
+					return;
+				certIdPath = certs.Members[0]['@odata.id'];
+				const cert = await redfishCall(certIdPath);
+
+				setText('cert-subject', certName(cert.Subject));
+				setText('cert-issuer', certName(cert.Issuer));
+				setText('cert-type', certName(cert.Subject) === certName(cert.Issuer) ?
+					'Self-signed' : 'CA-signed');
+				setText('cert-valid-to', cert.ValidNotAfter.startsWith('9999') ? 'No expiry' :
+					new Date(cert.ValidNotAfter).toLocaleDateString(undefined,
+						{ year: 'numeric', month: 'short', day: 'numeric' }));
+				setText('cert-fingerprint', cert.Fingerprint);
+
+				const cn = document.getElementById('csr-cn');
+				if (!cn.value && ethData)
+					cn.value = ethData.HostName;
+
+				show('cert-card');
+			} catch (err) {
+				console.error("Certificate refresh failed", err);
+			}
+		}
+
+		async function generateCsr() {
+			const body = {
+				CertificateCollection: networkProtocolData.HTTPS.Certificates,
+				KeyPairAlgorithm: 'TPM_ALG_ECDSA',
+				KeyCurveId: 'TPM_ECC_NIST_P256',
+			};
+			const fields = { CommonName: 'csr-cn', Organization: 'csr-o',
+					 OrganizationalUnit: 'csr-ou', City: 'csr-l',
+					 State: 'csr-st', Country: 'csr-c' };
+			for (const [name, id] of Object.entries(fields)) {
+				const value = document.getElementById(id).value.trim();
+				if (value)
+					body[name] = value;
+			}
+			const altNames = document.getElementById('csr-alt-names').value
+				.split(/[\s,]+/).filter(n => n);
+			if (altNames.length > 0)
+				body.AlternativeNames = altNames;
+
+			try {
+				const target = certService.Actions['#CertificateService.GenerateCSR'].target;
+				const response = await redfishCall(target, 'POST', body);
+				document.getElementById('cert-csr').value = response.CSRString;
+				show('cert-csr');
+				show('csr-copy');
+			} catch (err) {
+				alert("Failed to generate CSR: " + err.message);
+			}
+		}
+
+		async function copyCsr() {
+			const csr = document.getElementById('cert-csr');
+			try {
+				await navigator.clipboard.writeText(csr.value);
+			} catch (err) {
+				csr.select();
+				document.execCommand('copy');
+			}
+		}
+
+		async function installCert() {
+			const pem = document.getElementById('cert-install').value.trim();
+			if (!pem) {
+				alert("Paste a PEM certificate first.");
+				return;
+			}
+			if (!confirm("Install this certificate? New HTTPS connections will use it."))
+				return;
+
+			try {
+				const target = certService.Actions['#CertificateService.ReplaceCertificate'].target;
+				await redfishCall(target, 'POST', {
+					CertificateUri: { '@odata.id': certIdPath },
+					CertificateType: 'PEM',
+					CertificateString: pem + '\n',
+				});
+				document.getElementById('cert-install').value = '';
+				await refreshCertData();
+				alert("Certificate installed. Reload the page to connect with it.");
+			} catch (err) {
+				alert("Failed to install certificate: " + err.message);
+			}
+		}
+
 		async function refreshConfigData() {
+			refreshCertData();
 			document.getElementById('cfg-password').value = '';
 			document.getElementById('cfg-power-policy').value = sysData.PowerRestorePolicy;
 
