@@ -51,6 +51,11 @@ config APP_CRYPTO
 	# feasible if we need webui to set time.
 	# select MBEDTLS_HAVE_TIME_DATE if RTC
 
+# mbedTLS thread safety, see src/crypto_threading.c
+config TF_PSA_CRYPTO_USER_CONFIG_FILE
+	string
+	default "wallabmc_tf_psa_crypto_config.h" if MBEDTLS
+
 config APP_CRYPTO_TLS13
 	bool
 	default y

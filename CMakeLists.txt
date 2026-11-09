@@ -78,6 +78,13 @@ target_sources_ifdef(CONFIG_HTTP_SERVER app PRIVATE
 	src/http.c
 )
 
+if(CONFIG_MBEDTLS)
+  # For TF_PSA_CRYPTO_USER_CONFIG_FILE and threading_alt.h, which the
+  # mbedTLS libraries include too.
+  zephyr_include_directories(src/mbedtls)
+  target_sources(app PRIVATE src/crypto_threading.c)
+endif()
+
 target_sources_ifdef(CONFIG_APP_WEB app PRIVATE
 	src/web.c
 )
