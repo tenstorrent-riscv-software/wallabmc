@@ -118,6 +118,12 @@ static int validate_and_set_headers(struct http_client_ctx *client,
 			};
 			ctx->headers = headers;
 			ctx->header_count = ARRAY_SIZE(headers);
+		} else if (supported_methods == (BIT(HTTP_GET) | BIT(HTTP_DELETE))) {
+			static const struct http_header headers[] = {
+				{ .name = "allow", .value = "GET, DELETE" },
+			};
+			ctx->headers = headers;
+			ctx->header_count = ARRAY_SIZE(headers);
 		} else {
 			LOG_ERR("Unsupported supported methods!");
 		}
@@ -316,7 +322,8 @@ static int redfish_handler(struct http_client_ctx *client,
 			   bool require_auth,
 			   int (*get_fn)(struct http_resource_user_data *user_data),
 			   int (*patch_fn)(struct http_resource_user_data *user_data),
-			   int (*post_fn)(struct http_resource_user_data *user_data))
+			   int (*post_fn)(struct http_resource_user_data *user_data),
+			   int (*delete_fn)(struct http_resource_user_data *user_data))
 {
 	uint32_t allow_methods = 0;
 	int ret;
@@ -344,6 +351,8 @@ static int redfish_handler(struct http_client_ctx *client,
 		allow_methods |= BIT(HTTP_PATCH);
 	if (post_fn)
 		allow_methods |= BIT(HTTP_POST);
+	if (delete_fn)
+		allow_methods |= BIT(HTTP_DELETE);
 
 	if (validate_and_set_headers(client, response_ctx, allow_methods) < 0)
 		return 0;
@@ -354,7 +363,8 @@ static int redfish_handler(struct http_client_ctx *client,
 		return 0;
 	}
 
-	if (client->method == HTTP_PATCH || client->method == HTTP_POST) {
+	if (client->method == HTTP_PATCH || client->method == HTTP_POST ||
+	    client->method == HTTP_DELETE) {
 		if (!user_data->started && !alloc_user_data(user_data, user_data->post_size)) {
 			response_ctx->status = HTTP_503_SERVICE_UNAVAILABLE;
 			response_ctx->final_chunk = true;
@@ -377,8 +387,10 @@ static int redfish_handler(struct http_client_ctx *client,
 
 		if (client->method == HTTP_PATCH)
 			ret = patch_fn(user_data);
-		else /* client->method == HTTP_POST */
+		else if (client->method == HTTP_POST)
 			ret = post_fn(user_data);
+		else /* client->method == HTTP_DELETE, any body is ignored */
+			ret = delete_fn(user_data);
 
 		if (user_data->respond) {
 			static const struct http_header headers[] = {
@@ -438,11 +450,11 @@ static int redfish_handler(struct http_client_ctx *client,
 
 #define REDFISH_HANDLER(name, url, require_auth, get_handler, patch_handler, post_handler) \
 	REDFISH_HANDLER_SIZED(name, url, require_auth, get_handler, patch_handler,	\
-			      post_handler, USER_DATA_BUFFER_GET_SIZE,			\
+			      post_handler, NULL, USER_DATA_BUFFER_GET_SIZE,		\
 			      USER_DATA_BUFFER_POST_SIZE)
 
 #define REDFISH_HANDLER_SIZED(name, url, require_auth, get_handler, patch_handler,	\
-			      post_handler, get_size_, post_size_)			\
+			      post_handler, delete_handler, get_size_, post_size_)	\
 /* Zephyr HTTP API serialises requests by resource so static data can be used here. */	\
 static struct http_resource_user_data name##_user_data = {				\
 	.get_size = get_size_,								\
@@ -459,7 +471,8 @@ static int name##_handler(struct http_client_ctx *client,				\
 				require_auth,						\
 				get_handler,						\
 				patch_handler,						\
-				post_handler);						\
+				post_handler,						\
+				delete_handler);					\
 }											\
 static struct http_resource_detail_dynamic name##_detail = {				\
 	.common = {									\
