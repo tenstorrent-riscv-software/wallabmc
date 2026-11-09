@@ -82,6 +82,10 @@ target_sources_ifdef(CONFIG_HTTP_SERVER app PRIVATE
 	src/http.c
 )
 
+target_sources_ifdef(CONFIG_MBEDTLS app PRIVATE
+	src/crypto_threading.c
+)
+
 target_sources_ifdef(CONFIG_APP_WEB app PRIVATE
 	src/web.c
 )
@@ -147,7 +151,8 @@ endif()
 
 if(CONFIG_TF_PSA_CRYPTO_USER_CONFIG)
   # The Mbed TLS libraries link zephyr_interface, so this puts
-  # CONFIG_TF_PSA_CRYPTO_USER_CONFIG_FILE on their include path
+  # CONFIG_TF_PSA_CRYPTO_USER_CONFIG_FILE and threading_alt.h on their
+  # include path
   zephyr_include_directories(src/crypto)
 endif()
 
