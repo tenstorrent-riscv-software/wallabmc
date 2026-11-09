@@ -49,6 +49,9 @@ enum config_id {
 	CFG_BMC_WIFI_ENABLE = 11,		/* uint8_t */
 	CFG_BMC_WIFI_SSID = 12,			/* C string */
 	CFG_BMC_WIFI_PASSWORD = 13,		/* C string */
+	CFG_HTTPS_KEY = 14,			/* blob: private key, SEC1 DER */
+	CFG_HTTPS_CERT = 15,			/* blob: leaf certificate, DER */
+	CFG_HTTPS_CERT_SOURCE = 16,		/* uint8_t: enum https_cert_source */
 	/*
 	 * Add field IDs in increasing order and do not reuse deprecated
 	 * ones. Do not change meaning but add new and deprecate old.
@@ -146,6 +149,54 @@ static ssize_t __config_write(uint16_t id, const void *buf, size_t size)
 	__config_write(id, var, strlen(var));		\
 })
 
+
+bool config_persistent(void)
+{
+	return config_use_fs;
+}
+
+static int config_blob_id(enum config_blob blob)
+{
+	switch (blob) {
+	case CONFIG_BLOB_HTTPS_KEY:		return CFG_HTTPS_KEY;
+	case CONFIG_BLOB_HTTPS_CERT:		return CFG_HTTPS_CERT;
+	case CONFIG_BLOB_HTTPS_CERT_SOURCE:	return CFG_HTTPS_CERT_SOURCE;
+	}
+	return -EINVAL;
+}
+
+ssize_t config_blob_read(enum config_blob blob, void *buf, size_t size)
+{
+	int id = config_blob_id(blob);
+
+	if (id < 0)
+		return id;
+
+	return __config_read(id, buf, size);
+}
+
+int config_blob_write(enum config_blob blob, const void *buf, size_t size)
+{
+	int id = config_blob_id(blob);
+	ssize_t rc;
+
+	if (id < 0)
+		return id;
+
+	rc = __config_write(id, buf, size);
+	if (rc < 0) {
+		LOG_ERR("Configuration could not be saved (err=%zd)", rc);
+		return rc;
+	}
+
+	return 0;
+}
+
+int config_blob_delete(enum config_blob blob)
+{
+	/* A zero length NVS write deletes the item */
+	return config_blob_write(blob, NULL, 0);
+}
 
 const char *config_bmc_hostname(void)
 {
