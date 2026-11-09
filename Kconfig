@@ -349,10 +349,12 @@ config NET_TCP_RETRY_COUNT
 	int
 	default 10
 
+# Reissuing the HTTPS certificate from the shell (eg. "config bmc hostname")
+# signs it on the shell thread, which needs about 1.3 KiB more.
 config SHELL_STACK_SIZE
 	int
-	depends on SHELL_BACKEND_WEBSOCKET
-	default 3072
+	default 3584 if APP_HTTPS_PUBLIC_KEY
+	default 3072 if SHELL_BACKEND_WEBSOCKET
 
 config HTTP_SERVER_STACK_SIZE
 	int

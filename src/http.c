@@ -180,31 +180,12 @@ static int setup_tls(void)
 	int err = 0;
 
 #if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
-	const uint8_t *cert, *key;
-	size_t cert_len, key_len;
-
 	/*
 	 * Without a certificate nothing is registered under the tag, and the
 	 * HTTP server doesn't start the HTTPS service. Port 80 still starts.
 	 */
-	if (https_cert_init() == 0 &&
-	    https_cert_get(&cert, &cert_len, &key, &key_len) == 0) {
-		err = tls_credential_add(HTTP_SERVER_CERTIFICATE_TAG,
-					 TLS_CREDENTIAL_PUBLIC_CERTIFICATE,
-					 cert, cert_len);
-		if (err < 0) {
-			LOG_ERR("Failed to register public certificate: %d", err);
-			return err;
-		}
-
-		err = tls_credential_add(HTTP_SERVER_CERTIFICATE_TAG,
-					 TLS_CREDENTIAL_PRIVATE_KEY,
-					 key, key_len);
-		if (err < 0) {
-			LOG_ERR("Failed to register private key: %d", err);
-			return err;
-		}
-	}
+	if (https_cert_init() == 0)
+		https_cert_register(HTTP_SERVER_CERTIFICATE_TAG);
 #endif
 
 #if defined(CONFIG_APP_HTTPS_PSK)

@@ -301,6 +301,10 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_bmc_cert_cmds,
 	SHELL_CMD(regenerate,	NULL,
 		  "Delete the HTTPS key and certificate and reboot to generate new ones.",
 		  https_cert_cmd_regenerate),
+	SHELL_CMD_ARG(names,	NULL,
+		  "Show or set extra names for the HTTPS certificate.\n"
+		  "Usage: bmc cert names [<DNS name or IPv4 address>... | clear]",
+		  https_cert_cmd_names, 1, 8),
 	SHELL_SUBCMD_SET_END
 );
 #endif

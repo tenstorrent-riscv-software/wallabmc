@@ -2,17 +2,19 @@
  * HTTPS server key and certificate
  *
  * Each board generates its own P-256 key on first boot and keeps it in
- * config. The certificate is self-signed for the BMC's hostname and static
- * IPv4 address, and is reissued with the same key when they change.
+ * config. The certificate is self-signed for the BMC's hostname, static
+ * IPv4 address and any extra names, and is reissued with the same key when
+ * they change.
  *
  * SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <zephyr/kernel.h>
+#include <zephyr/net/net_ip.h>
+#include <zephyr/net/tls_credentials.h>
 #include <zephyr/shell/shell.h>
 #include <zephyr/sys/base64.h>
-#include <zephyr/sys/byteorder.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -30,6 +32,7 @@ LOG_MODULE_REGISTER(wallabmc_https_cert, LOG_LEVEL_INF);
 #include "https_cert.h"
 #include "config.h"
 #include "main.h"
+#include "net.h"
 
 /* SEC1 ECPrivateKey DER for P-256 is 121 bytes */
 #define KEY_DER_MAX		128
@@ -47,20 +50,48 @@ LOG_MODULE_REGISTER(wallabmc_https_cert, LOG_LEVEL_INF);
 #define CERT_NOT_AFTER		"99991231235959"
 #define CERT_ORG		"WallaBMC"
 
+/* Hostname, static IPv4 address and extra names */
+#define EXTRA_NAMES_COUNT_MAX	8
+#define SAN_MAX			(2 + EXTRA_NAMES_COUNT_MAX)
+
+/* Recursive, and held for everything below */
 static K_MUTEX_DEFINE(https_cert_lock);
 
 /* Registered as the TLS private key credential */
 static uint8_t key_der[KEY_DER_MAX];
 static size_t key_len;
 
-/* Registered as the TLS certificate credential */
-static uint8_t cert_der[CERT_DER_MAX];
+/*
+ * The current certificate is cert_bufs[cert_cur] and is registered as the
+ * TLS certificate credential. A new certificate is written to the other
+ * buffer, so the current one stays valid until the credential is swapped.
+ */
+static uint8_t cert_bufs[2][CERT_DER_MAX];
+static int cert_cur;
 static size_t cert_len;
 static uint8_t cert_source;
+#define cert_der	(cert_bufs[cert_cur])
+#define cert_next	(cert_bufs[!cert_cur])
 
-/* Scratch, used under https_cert_lock to keep large objects off the stack */
-static uint8_t scratch[CERT_DER_MAX];
+/* TLS credential tag, -1 until registered */
+static int cred_tag = -1;
+
+/* Kept static to keep it off the stack */
 static mbedtls_x509_crt scratch_crt;
+
+static char extra_names[HTTPS_CERT_EXTRA_NAMES_MAX + 1];
+
+/* A name the certificate should be for */
+struct san_entry {
+	int type;		/* MBEDTLS_X509_SAN_DNS_NAME or _IP_ADDRESS */
+	const uint8_t *p;	/* DNS name (not NUL terminated) or ip4 */
+	size_t len;
+	uint8_t ip4[4];
+	bool hostname;		/* The BMC's hostname */
+};
+
+static struct san_entry sans[SAN_MAX];
+static size_t san_count;
 
 /* Cached for display, so showing the cert needs no crypto */
 static struct {
@@ -68,21 +99,124 @@ static struct {
 	char fingerprint[SHA256_LEN * 3];	/* AA:BB:..., NUL terminated */
 	char pin[(SHA256_LEN + 2) / 3 * 4 + 1];
 	char subject[96];
-	char names[160];
+	char names[320];
+	char uncovered[160];			/* Names an installed cert lacks */
 } info;
 
-/* The names a self-signed certificate is issued for */
-struct cert_names {
-	const char *hostname;
-	uint32_t ip4;		/* network byte order, 0 for none */
-};
-
-static void cert_names_current(struct cert_names *names)
+/*
+ * Parse a list of DNS names and IPv4 addresses separated by commas or
+ * spaces into out (if not NULL). Returns the number of names or -EINVAL.
+ */
+static int extra_names_parse(const char *names, struct san_entry *out, size_t max)
 {
-	names->hostname = config_bmc_hostname();
-	names->ip4 = config_bmc_default_ip4();
+	const char *p = names;
+	size_t n = 0;
+
+	for (;;) {
+		struct in_addr addr;
+		char tmp[INET_ADDRSTRLEN];
+		bool is_ip = false;
+		size_t len;
+
+		p += strspn(p, ", ");
+		if (!*p)
+			break;
+		len = strcspn(p, ", ");
+
+		if (len < sizeof(tmp)) {
+			memcpy(tmp, p, len);
+			tmp[len] = '\0';
+			is_ip = net_addr_pton(AF_INET, tmp, &addr) == 0;
+		}
+		if (!is_ip && !net_dns_name_valid(p, len, true))
+			return -EINVAL;
+
+		if (n == max)
+			return -E2BIG;
+
+		if (out) {
+			struct san_entry *e = &out[n];
+
+			memset(e, 0, sizeof(*e));
+			if (is_ip) {
+				e->type = MBEDTLS_X509_SAN_IP_ADDRESS;
+				memcpy(e->ip4, &addr, sizeof(e->ip4));
+				e->p = e->ip4;
+				e->len = sizeof(e->ip4);
+			} else {
+				e->type = MBEDTLS_X509_SAN_DNS_NAME;
+				e->p = (const uint8_t *)p;
+				e->len = len;
+			}
+		}
+		n++;
+		p += len;
+	}
+
+	return n;
 }
 
+static bool san_entry_eq(const struct san_entry *e, int type, const uint8_t *p, size_t len)
+{
+	if (e->type != type || e->len != len)
+		return false;
+
+	if (type == MBEDTLS_X509_SAN_DNS_NAME)
+		return !strncasecmp((const char *)e->p, (const char *)p, len);
+
+	return !memcmp(e->p, p, len);
+}
+
+/* Build sans[] from the hostname, static IPv4 address and extra names */
+static void names_build(void)
+{
+	const char *hostname = config_bmc_hostname();
+	uint32_t ip4 = config_bmc_default_ip4();
+	struct san_entry *e = sans;
+	int n;
+
+	memset(sans, 0, sizeof(sans));
+
+	e->type = MBEDTLS_X509_SAN_DNS_NAME;
+	e->p = (const uint8_t *)hostname;
+	e->len = strlen(hostname);
+	e->hostname = true;
+	e++;
+
+	if (ip4) {
+		e->type = MBEDTLS_X509_SAN_IP_ADDRESS;
+		memcpy(e->ip4, &ip4, sizeof(e->ip4));
+		e->p = e->ip4;
+		e->len = sizeof(e->ip4);
+		e++;
+	}
+
+	n = extra_names_parse(extra_names, e, ARRAY_SIZE(sans) - (e - sans));
+	if (n < 0) {
+		LOG_WRN("Ignoring invalid extra certificate names \"%s\"", extra_names);
+		n = 0;
+	}
+	san_count = (e - sans) + n;
+
+	/* Drop duplicates, eg. an extra name that's the same as the hostname */
+	for (size_t i = 1; i < san_count; i++) {
+		for (size_t j = 0; j < i; j++) {
+			if (san_entry_eq(&sans[j], sans[i].type, sans[i].p, sans[i].len)) {
+				memmove(&sans[i], &sans[i + 1], (san_count - i - 1) * sizeof(sans[0]));
+				san_count--;
+				/* The entries moved, so fix up the ip4 pointers */
+				for (size_t k = i; k < san_count; k++) {
+					if (sans[k].type == MBEDTLS_X509_SAN_IP_ADDRESS)
+						sans[k].p = sans[k].ip4;
+				}
+				i--;
+				break;
+			}
+		}
+	}
+}
+
+/* Generate a new key into key_der, using cert_next as scratch */
 static int key_generate(void)
 {
 	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
@@ -110,27 +244,25 @@ static int key_generate(void)
 	mbedtls_pk_init(&pk);
 	ret = mbedtls_pk_wrap_psa(&pk, id);
 	if (ret == 0)
-		ret = mbedtls_pk_write_key_der(&pk, scratch, sizeof(scratch));
+		ret = mbedtls_pk_write_key_der(&pk, cert_next, CERT_DER_MAX);
 	mbedtls_pk_free(&pk);
 	psa_destroy_key(id);
 
 	if (ret < 0) {
 		LOG_ERR("Key export failed (err=-0x%04x)", -ret);
-		mbedtls_platform_zeroize(scratch, sizeof(scratch));
-		return -EIO;
-	}
-	if (ret > sizeof(key_der)) {
+		ret = -EIO;
+	} else if (ret > sizeof(key_der)) {
 		LOG_ERR("Key too large (%d bytes)", ret);
-		mbedtls_platform_zeroize(scratch, sizeof(scratch));
-		return -ENOMEM;
+		ret = -ENOMEM;
+	} else {
+		/* The DER is written at the end of the buffer */
+		memcpy(key_der, cert_next + CERT_DER_MAX - ret, ret);
+		key_len = ret;
+		ret = 0;
 	}
 
-	/* The DER is written at the end of the buffer */
-	memcpy(key_der, scratch + sizeof(scratch) - ret, ret);
-	key_len = ret;
-	mbedtls_platform_zeroize(scratch, sizeof(scratch));
-
-	return 0;
+	mbedtls_platform_zeroize(cert_next, CERT_DER_MAX);
+	return ret;
 }
 
 static int key_load(mbedtls_pk_context *pk)
@@ -188,15 +320,15 @@ static int sha_compute(psa_algorithm_t alg, const uint8_t *in, size_t in_len,
 	return 0;
 }
 
+/* Issue a self-signed certificate for sans[] into cert_next */
 static int cert_issue(mbedtls_pk_context *pk, const uint8_t *spki, size_t spki_len,
-		      const struct cert_names *names)
+		      size_t *len)
 {
+	static mbedtls_x509_san_list san_list[SAN_MAX];
 	mbedtls_x509write_cert crt;
-	mbedtls_x509_san_list san[2];
 	mbedtls_asn1_sequence eku;
 	uint8_t serial[16];
 	uint8_t ski[2 + SHA1_LEN];
-	uint8_t ip4[4];
 	char subject[sizeof("CN=,O=" CERT_ORG) + CONFIG_NET_HOSTNAME_MAX_LEN];
 	int ret;
 
@@ -222,7 +354,9 @@ static int cert_issue(mbedtls_pk_context *pk, const uint8_t *spki, size_t spki_l
 	if (ret)
 		goto out;
 
-	ret = snprintf(subject, sizeof(subject), "CN=%s,O=" CERT_ORG, names->hostname);
+	/* sans[0] is the hostname */
+	ret = snprintf(subject, sizeof(subject), "CN=%.*s,O=" CERT_ORG,
+		       (int)sans[0].len, sans[0].p);
 	if (ret < 0 || ret >= sizeof(subject)) {
 		ret = -ENAMETOOLONG;
 		goto out;
@@ -278,32 +412,28 @@ static int cert_issue(mbedtls_pk_context *pk, const uint8_t *spki, size_t spki_l
 	if (ret)
 		goto out;
 
-	memset(san, 0, sizeof(san));
-	san[0].node.type = MBEDTLS_X509_SAN_DNS_NAME;
-	san[0].node.san.unstructured_name.p = (unsigned char *)names->hostname;
-	san[0].node.san.unstructured_name.len = strlen(names->hostname);
-	if (names->ip4) {
-		memcpy(ip4, &names->ip4, sizeof(ip4));
-		san[0].next = &san[1];
-		san[1].node.type = MBEDTLS_X509_SAN_IP_ADDRESS;
-		san[1].node.san.unstructured_name.p = ip4;
-		san[1].node.san.unstructured_name.len = sizeof(ip4);
+	/*
+	 * The names are written in the reverse order of the list, so link it
+	 * backwards to keep the hostname first.
+	 */
+	memset(san_list, 0, sizeof(san_list));
+	for (size_t i = 0; i < san_count; i++) {
+		san_list[i].node.type = sans[i].type;
+		san_list[i].node.san.unstructured_name.p = (unsigned char *)sans[i].p;
+		san_list[i].node.san.unstructured_name.len = sans[i].len;
+		san_list[i].next = i ? &san_list[i - 1] : NULL;
 	}
-	ret = mbedtls_x509write_crt_set_subject_alternative_name(&crt, san);
+	ret = mbedtls_x509write_crt_set_subject_alternative_name(&crt, &san_list[san_count - 1]);
 	if (ret)
 		goto out;
 
-	ret = mbedtls_x509write_crt_der(&crt, scratch, sizeof(scratch));
+	ret = mbedtls_x509write_crt_der(&crt, cert_next, CERT_DER_MAX);
 	if (ret < 0)
 		goto out;
-	if (ret > sizeof(cert_der)) {
-		ret = -ENOMEM;
-		goto out;
-	}
 
-	memcpy(cert_der, scratch + sizeof(scratch) - ret, ret);
-	cert_len = ret;
-	cert_source = HTTPS_CERT_SELF_SIGNED;
+	/* The DER is written at the end of the buffer */
+	memmove(cert_next, cert_next + CERT_DER_MAX - ret, ret);
+	*len = ret;
 	ret = 0;
 
 out:
@@ -319,29 +449,91 @@ static bool san_is(const mbedtls_x509_buf *san, int type)
 	return san->tag == (MBEDTLS_ASN1_CONTEXT_SPECIFIC | type);
 }
 
-/* True if the certificate's SANs are exactly the given names */
-static bool cert_names_equal(const mbedtls_x509_crt *crt, const struct cert_names *names)
+static int san_type(const mbedtls_x509_buf *san)
+{
+	return san->tag & ~MBEDTLS_ASN1_CONTEXT_SPECIFIC;
+}
+
+/* True if the certificate's SANs are exactly sans[] */
+static bool cert_names_equal(const mbedtls_x509_crt *crt)
 {
 	const mbedtls_x509_sequence *cur;
-	bool have_dns = false, have_ip4 = false;
+	bool matched[SAN_MAX] = { false };
+	size_t count = 0;
 
 	for (cur = &crt->subject_alt_names; cur && cur->buf.p; cur = cur->next) {
-		const mbedtls_x509_buf *san = &cur->buf;
+		size_t i;
 
-		if (san_is(san, MBEDTLS_X509_SAN_DNS_NAME) && !have_dns &&
-		    san->len == strlen(names->hostname) &&
-		    !strncasecmp((const char *)san->p, names->hostname, san->len)) {
-			have_dns = true;
-		} else if (san_is(san, MBEDTLS_X509_SAN_IP_ADDRESS) && !have_ip4 &&
-			   names->ip4 && san->len == 4 &&
-			   !memcmp(san->p, &names->ip4, 4)) {
-			have_ip4 = true;
-		} else {
-			return false;
+		for (i = 0; i < san_count; i++) {
+			if (!matched[i] &&
+			    san_entry_eq(&sans[i], san_type(&cur->buf), cur->buf.p, cur->buf.len))
+				break;
 		}
+		if (i == san_count)
+			return false;
+		matched[i] = true;
+		count++;
 	}
 
-	return have_dns && have_ip4 == !!names->ip4;
+	return count == san_count;
+}
+
+/* True if the DNS SAN san covers the name, which may be a wildcard SAN */
+static bool san_dns_covers(const mbedtls_x509_buf *san, const struct san_entry *e)
+{
+	const char *name = (const char *)e->p;
+	const char *dot;
+
+	if (san->len == e->len && !strncasecmp((const char *)san->p, name, e->len))
+		return true;
+
+	/* "*.example.com" covers one label in front of "example.com" */
+	dot = memchr(name, '.', e->len);
+	if (dot && dot != name && san->len > 2 && san->p[0] == '*' && san->p[1] == '.' &&
+	    san->len - 1 == e->len - (dot - name) &&
+	    !strncasecmp((const char *)san->p + 1, dot, san->len - 1))
+		return true;
+
+	/* The hostname is covered by a fully qualified name starting with it */
+	if (e->hostname && san->len > e->len && san->p[e->len] == '.' &&
+	    !strncasecmp((const char *)san->p, name, e->len))
+		return true;
+
+	return false;
+}
+
+/* List the names in sans[] that the certificate doesn't cover in info */
+static void cert_names_check(const mbedtls_x509_crt *crt)
+{
+	char *buf = info.uncovered;
+	size_t size = sizeof(info.uncovered);
+
+	buf[0] = '\0';
+
+	for (size_t i = 0; i < san_count; i++) {
+		const struct san_entry *e = &sans[i];
+		const mbedtls_x509_sequence *cur;
+		size_t len = strlen(buf);
+		bool covered = false;
+
+		for (cur = &crt->subject_alt_names; cur && cur->buf.p && !covered; cur = cur->next) {
+			if (e->type == MBEDTLS_X509_SAN_DNS_NAME &&
+			    san_is(&cur->buf, MBEDTLS_X509_SAN_DNS_NAME))
+				covered = san_dns_covers(&cur->buf, e);
+			else
+				covered = san_entry_eq(e, san_type(&cur->buf),
+						       cur->buf.p, cur->buf.len);
+		}
+		if (covered)
+			continue;
+
+		if (e->type == MBEDTLS_X509_SAN_DNS_NAME)
+			snprintf(buf + len, size - len, "%s%.*s", len ? ", " : "",
+				 (int)e->len, e->p);
+		else
+			snprintf(buf + len, size - len, "%s%u.%u.%u.%u", len ? ", " : "",
+				 e->p[0], e->p[1], e->p[2], e->p[3]);
+	}
 }
 
 static void names_append(char *buf, size_t size, const mbedtls_x509_buf *san)
@@ -355,8 +547,7 @@ static void names_append(char *buf, size_t size, const mbedtls_x509_buf *san)
 		snprintf(buf + len, size - len, "%sIP:%u.%u.%u.%u", sep,
 			 san->p[0], san->p[1], san->p[2], san->p[3]);
 	} else {
-		snprintf(buf + len, size - len, "%s(type %d)", sep,
-			 san->tag & ~MBEDTLS_ASN1_CONTEXT_SPECIFIC);
+		snprintf(buf + len, size - len, "%s(type %d)", sep, san_type(san));
 	}
 }
 
@@ -407,6 +598,9 @@ static void info_update(const uint8_t *spki, size_t spki_len)
 	for (cur = &crt->subject_alt_names; cur && cur->buf.p; cur = cur->next)
 		names_append(info.names, sizeof(info.names), &cur->buf);
 
+	if (cert_source == HTTPS_CERT_INSTALLED)
+		cert_names_check(crt);
+
 	mbedtls_x509_crt_free(crt);
 	info.valid = true;
 }
@@ -422,13 +616,15 @@ static void info_log(void)
 	LOG_INF("  Names: %s", info.names);
 	LOG_INF("  SHA-256 fingerprint: %s", info.fingerprint);
 	LOG_INF("  Public key pin: sha256//%s", info.pin);
+	if (info.uncovered[0])
+		LOG_WRN("HTTPS certificate is not valid for: %s", info.uncovered);
 }
 
 /*
  * Check a stored certificate can be used with the key. A self-signed
  * certificate must also be for the current names, otherwise it's reissued.
  */
-static bool cert_usable(const uint8_t *spki, size_t spki_len, const struct cert_names *names)
+static bool cert_usable(const uint8_t *spki, size_t spki_len)
 {
 	mbedtls_x509_crt *crt = &scratch_crt;
 	bool ok = true;
@@ -439,8 +635,8 @@ static bool cert_usable(const uint8_t *spki, size_t spki_len, const struct cert_
 	if (crt->pk_raw.len != spki_len || memcmp(crt->pk_raw.p, spki, spki_len)) {
 		LOG_WRN("Stored certificate is not for the stored key");
 		ok = false;
-	} else if (cert_source == HTTPS_CERT_SELF_SIGNED && !cert_names_equal(crt, names)) {
-		LOG_INF("Hostname or IP address changed, reissuing certificate");
+	} else if (cert_source == HTTPS_CERT_SELF_SIGNED && !cert_names_equal(crt)) {
+		LOG_INF("Hostname or addresses changed, reissuing certificate");
 		ok = false;
 	}
 
@@ -455,19 +651,114 @@ static void save(enum config_blob blob, const void *buf, size_t len)
 			blob == CONFIG_BLOB_HTTPS_KEY ? "key" : "certificate");
 }
 
+/*
+ * Make cert_next, of length len, the current certificate, and swap the TLS
+ * credential to it if it's registered.
+ */
+static int cert_switch(size_t len, enum https_cert_source source)
+{
+	int ret;
+
+	if (cred_tag >= 0) {
+		/*
+		 * There's no replace, the old one has to be deleted first. A
+		 * connection accepted in between fails its handshake. Once
+		 * delete returns, no connection is still reading the old
+		 * buffer, they make their own copy.
+		 */
+		ret = tls_credential_delete(cred_tag, TLS_CREDENTIAL_PUBLIC_CERTIFICATE);
+		if (ret && ret != -ENOENT)
+			LOG_WRN("Could not delete certificate credential (err=%d)", ret);
+		ret = tls_credential_add(cred_tag, TLS_CREDENTIAL_PUBLIC_CERTIFICATE,
+					 cert_next, len);
+		if (ret) {
+			LOG_ERR("Could not register new certificate (err=%d)", ret);
+			/* Put the old one back */
+			tls_credential_add(cred_tag, TLS_CREDENTIAL_PUBLIC_CERTIFICATE,
+					   cert_der, cert_len);
+			return ret;
+		}
+	}
+
+	cert_cur = !cert_cur;
+	cert_len = len;
+	cert_source = source;
+
+	return 0;
+}
+
+/* Issue a self-signed certificate for sans[] and make it current */
+static int cert_reissue(void)
+{
+	mbedtls_pk_context pk;
+	uint8_t spki[SPKI_DER_MAX];
+	size_t spki_len, len;
+	uint32_t t;
+	int ret;
+
+	ret = key_load(&pk);
+	if (ret)
+		return ret;
+
+	ret = key_spki(&pk, spki, &spki_len);
+	if (ret)
+		goto out;
+
+	t = k_uptime_get_32();
+	ret = cert_issue(&pk, spki, spki_len, &len);
+	if (ret)
+		goto out;
+
+	ret = cert_switch(len, HTTPS_CERT_SELF_SIGNED);
+	if (ret)
+		goto out;
+
+	LOG_INF("Issued self-signed HTTPS certificate in %u ms", k_uptime_get_32() - t);
+	save(CONFIG_BLOB_HTTPS_CERT, cert_der, cert_len);
+	save(CONFIG_BLOB_HTTPS_CERT_SOURCE, &cert_source, sizeof(cert_source));
+
+	info_update(spki, spki_len);
+	info_log();
+
+out:
+	mbedtls_pk_free(&pk);
+	return ret;
+}
+
+static void extra_names_load(void)
+{
+	ssize_t rc;
+
+	rc = config_blob_read(CONFIG_BLOB_HTTPS_EXTRA_NAMES, extra_names,
+			      sizeof(extra_names) - 1);
+	extra_names[rc > 0 ? rc : 0] = '\0';
+
+	/*
+	 * https_cert_extra_names_set() only saves valid names, so these are
+	 * corrupt or left over from something else. Drop them, rather than
+	 * warning every time the certificate is issued.
+	 */
+	if (extra_names_parse(extra_names, NULL, EXTRA_NAMES_COUNT_MAX) < 0) {
+		LOG_WRN("Deleting invalid extra certificate names from config");
+		extra_names[0] = '\0';
+		config_blob_delete(CONFIG_BLOB_HTTPS_EXTRA_NAMES);
+	}
+}
+
 static int https_cert_load(void)
 {
 	mbedtls_pk_context pk;
-	struct cert_names names;
 	uint8_t spki[SPKI_DER_MAX];
 	size_t spki_len;
-	bool new_key = false;
 	uint32_t t;
 	ssize_t rc;
 	int ret;
 
 	if (!config_persistent())
 		LOG_WRN("No persistent storage, the HTTPS key will change on every boot");
+
+	extra_names_load();
+	names_build();
 
 	rc = config_blob_read(CONFIG_BLOB_HTTPS_KEY, key_der, sizeof(key_der));
 	key_len = rc > 0 ? rc : 0;
@@ -476,11 +767,14 @@ static int https_cert_load(void)
 		if (ret) {
 			LOG_ERR("Stored HTTPS key is invalid, generating a new one");
 			key_len = 0;
+		} else {
+			mbedtls_pk_free(&pk);
 		}
 	} else if (rc != -ENOENT && rc != -ENODEV) {
 		LOG_ERR("Could not read HTTPS key (err=%zd), generating a new one", rc);
 	}
 
+	cert_len = 0;
 	if (!key_len) {
 		LOG_INF("Generating HTTPS key");
 		t = k_uptime_get_32();
@@ -488,50 +782,33 @@ static int https_cert_load(void)
 		if (ret)
 			return ret;
 		LOG_INF("Generated HTTPS key in %u ms", k_uptime_get_32() - t);
-		new_key = true;
 		save(CONFIG_BLOB_HTTPS_KEY, key_der, key_len);
-		ret = key_load(&pk);
-		if (ret)
-			return ret;
-	}
-
-	ret = key_spki(&pk, spki, &spki_len);
-	if (ret)
-		goto out;
-
-	cert_names_current(&names);
-	cert_len = 0;
-	if (!new_key) {
-		rc = config_blob_read(CONFIG_BLOB_HTTPS_CERT, cert_der, sizeof(cert_der));
+	} else {
+		rc = config_blob_read(CONFIG_BLOB_HTTPS_CERT, cert_der, CERT_DER_MAX);
 		if (rc > 0) {
 			cert_len = rc;
 			if (config_blob_read(CONFIG_BLOB_HTTPS_CERT_SOURCE, &cert_source,
 					     sizeof(cert_source)) != sizeof(cert_source))
 				cert_source = HTTPS_CERT_SELF_SIGNED;
-			if (!cert_usable(spki, spki_len, &names))
-				cert_len = 0;
 		}
 	}
 
-	if (!cert_len) {
-		t = k_uptime_get_32();
-		ret = cert_issue(&pk, spki, spki_len, &names);
-		if (ret)
-			goto out;
-		LOG_INF("Issued self-signed HTTPS certificate in %u ms",
-			k_uptime_get_32() - t);
-		save(CONFIG_BLOB_HTTPS_CERT, cert_der, cert_len);
-		save(CONFIG_BLOB_HTTPS_CERT_SOURCE, &cert_source, sizeof(cert_source));
-	}
-
-	info_update(spki, spki_len);
-	info_log();
-
-out:
+	ret = key_load(&pk);
+	if (ret)
+		return ret;
+	ret = key_spki(&pk, spki, &spki_len);
 	mbedtls_pk_free(&pk);
 	if (ret)
-		cert_len = 0;
-	return ret;
+		return ret;
+
+	if (cert_len && cert_usable(spki, spki_len)) {
+		info_update(spki, spki_len);
+		info_log();
+		return 0;
+	}
+
+	cert_len = 0;
+	return cert_reissue();
 }
 
 int https_cert_init(void)
@@ -540,6 +817,8 @@ int https_cert_init(void)
 
 	k_mutex_lock(&https_cert_lock, K_FOREVER);
 	ret = https_cert_load();
+	if (ret)
+		cert_len = 0;
 	k_mutex_unlock(&https_cert_lock);
 
 	if (ret)
@@ -555,18 +834,117 @@ int https_cert_init(void)
 	return ret;
 }
 
-int https_cert_get(const uint8_t **cert, size_t *cert_len_out,
-		   const uint8_t **key, size_t *key_len_out)
+int https_cert_register(int sec_tag)
 {
-	int ret = -ENOENT;
+	int ret;
 
 	k_mutex_lock(&https_cert_lock, K_FOREVER);
-	if (cert_len && key_len) {
-		*cert = cert_der;
-		*cert_len_out = cert_len;
-		*key = key_der;
-		*key_len_out = key_len;
-		ret = 0;
+
+	if (!cert_len || !key_len) {
+		ret = -ENOENT;
+		goto out;
+	}
+
+	ret = tls_credential_add(sec_tag, TLS_CREDENTIAL_PUBLIC_CERTIFICATE,
+				 cert_der, cert_len);
+	if (ret) {
+		LOG_ERR("Failed to register certificate (err=%d)", ret);
+		goto out;
+	}
+
+	ret = tls_credential_add(sec_tag, TLS_CREDENTIAL_PRIVATE_KEY, key_der, key_len);
+	if (ret) {
+		LOG_ERR("Failed to register private key (err=%d)", ret);
+		tls_credential_delete(sec_tag, TLS_CREDENTIAL_PUBLIC_CERTIFICATE);
+		goto out;
+	}
+
+	cred_tag = sec_tag;
+out:
+	k_mutex_unlock(&https_cert_lock);
+	return ret;
+}
+
+/* Called with https_cert_lock held */
+static void names_changed(void)
+{
+	mbedtls_x509_crt *crt = &scratch_crt;
+	bool equal;
+
+	/* Not initialised, or it failed */
+	if (!key_len || !cert_len)
+		return;
+
+	names_build();
+
+	if (cert_source == HTTPS_CERT_INSTALLED) {
+		if (cert_parse(crt, cert_der, cert_len))
+			return;
+		cert_names_check(crt);
+		mbedtls_x509_crt_free(crt);
+		if (info.uncovered[0])
+			LOG_WRN("HTTPS certificate is not valid for: %s", info.uncovered);
+		return;
+	}
+
+	if (cert_parse(crt, cert_der, cert_len))
+		return;
+	equal = cert_names_equal(crt);
+	mbedtls_x509_crt_free(crt);
+
+	if (!equal)
+		cert_reissue();
+}
+
+void https_cert_names_changed(void)
+{
+	k_mutex_lock(&https_cert_lock, K_FOREVER);
+	names_changed();
+	k_mutex_unlock(&https_cert_lock);
+
+#if defined(CONFIG_THREAD_STACK_INFO) && defined(CONFIG_INIT_STACKS)
+	size_t unused;
+
+	if (!k_thread_stack_space_get(k_current_get(), &unused))
+		LOG_DBG("Stack unused after HTTPS cert reissue: %zu bytes", unused);
+#endif
+}
+
+int https_cert_extra_names_set(const char *names)
+{
+	char normalised[HTTPS_CERT_EXTRA_NAMES_MAX + 1];
+	const char *p = names;
+	size_t len = 0;
+	int ret;
+
+	ret = extra_names_parse(names, NULL, EXTRA_NAMES_COUNT_MAX);
+	if (ret < 0)
+		return ret;
+
+	/* Store them comma separated */
+	for (;;) {
+		size_t n;
+
+		p += strspn(p, ", ");
+		if (!*p)
+			break;
+		n = strcspn(p, ", ");
+		if (len + !!len + n >= sizeof(normalised))
+			return -E2BIG;
+		if (len)
+			normalised[len++] = ',';
+		memcpy(normalised + len, p, n);
+		len += n;
+		p += n;
+	}
+	normalised[len] = '\0';
+
+	k_mutex_lock(&https_cert_lock, K_FOREVER);
+	ret = len ? config_blob_write(CONFIG_BLOB_HTTPS_EXTRA_NAMES, normalised, len) :
+		    config_blob_delete(CONFIG_BLOB_HTTPS_EXTRA_NAMES);
+	if (!ret) {
+		strcpy(extra_names, normalised);
+		names_changed();
 	}
 	k_mutex_unlock(&https_cert_lock);
 
@@ -591,6 +969,9 @@ int https_cert_cmd_show(const struct shell *sh, size_t argc, char **argv)
 	shell_print(sh, "Names:               %s", info.names);
 	shell_print(sh, "SHA-256 fingerprint: %s", info.fingerprint);
 	shell_print(sh, "Public key pin:      sha256//%s", info.pin);
+	shell_print(sh, "Extra names:         %s", extra_names[0] ? extra_names : "(none)");
+	if (info.uncovered[0])
+		shell_warn(sh, "Certificate is not valid for: %s", info.uncovered);
 	k_mutex_unlock(&https_cert_lock);
 
 	return 0;
@@ -614,10 +995,9 @@ int https_cert_cmd_regenerate(const struct shell *sh, size_t argc, char **argv)
 	}
 
 	/*
-	 * Generating a key here would use mbedTLS concurrently with the TLS
-	 * connections, which isn't thread safe. Delete the stored key so a
-	 * new one is generated on the next boot, before the HTTP server
-	 * starts.
+	 * The key is also registered as a TLS credential, and connections
+	 * could be using it. Delete it so a new one is generated on the next
+	 * boot instead.
 	 */
 	rc = config_blob_delete(CONFIG_BLOB_HTTPS_KEY);
 	if (!rc)
@@ -632,5 +1012,51 @@ int https_cert_cmd_regenerate(const struct shell *sh, size_t argc, char **argv)
 	shell_print(sh, "HTTPS key deleted, rebooting to generate a new one");
 	bmc_reboot();
 
+	return 0;
+}
+
+int https_cert_cmd_names(const struct shell *sh, size_t argc, char **argv)
+{
+	char names[HTTPS_CERT_EXTRA_NAMES_MAX + 1];
+	size_t len = 0;
+	int rc;
+
+	if (argc < 2) {
+		shell_print(sh, "Extra names: %s", extra_names[0] ? extra_names : "(none)");
+		return 0;
+	}
+
+	if (!is_boot_finished()) {
+		shell_error(sh, "must wait for boot to finish");
+		return -EAGAIN;
+	}
+
+	/* "bmc cert names clear" removes them */
+	names[0] = '\0';
+	if (!(argc == 2 && !strcmp(argv[1], "clear"))) {
+		for (size_t i = 1; i < argc; i++) {
+			rc = snprintf(names + len, sizeof(names) - len, "%s%s",
+				      len ? "," : "", argv[i]);
+			if (rc < 0 || rc >= sizeof(names) - len) {
+				shell_error(sh, "Too many names");
+				return -E2BIG;
+			}
+			len += rc;
+		}
+	}
+
+	rc = https_cert_extra_names_set(names);
+	if (rc == -EINVAL) {
+		shell_error(sh, "Invalid name, use DNS names or IPv4 addresses");
+		return rc;
+	} else if (rc == -E2BIG) {
+		shell_error(sh, "Too many names, at most %d", EXTRA_NAMES_COUNT_MAX);
+		return rc;
+	} else if (rc) {
+		shell_error(sh, "Could not set names (err=%d)", rc);
+		return rc;
+	}
+
+	shell_print(sh, "Extra names: %s", extra_names[0] ? extra_names : "(none)");
 	return 0;
 }
