@@ -137,11 +137,25 @@ wallabmc commands.
 
 The websocket BMC shell endpoint URL is /console/bmc and supports ws and
 wss if ``CONFIG_APP_HTTPS`` (e.g., ``wss://wallabmc.local.net/console/bmc``).
+It needs the admin password, and gives the same commands as the serial
+console, so by default the shell is available over the network. Build with
+``CONFIG_APP_WEB_TERMINAL_BMC_SHELL=n`` to keep it off the network. See
+[Where the shell is available](docs/https-certificates.md#where-the-shell-is-available).
 
 ### Host serial console
 
 The websocket host console endpoint URL is /console/host and supports ws and
 wss if ``CONFIG_APP_HTTPS`` (e.g., ``wss://wallabmc.local.net/console/host``).
+
+### HTTPS certificates
+
+With ``CONFIG_APP_HTTPS`` each BMC generates its own HTTPS key on first boot
+and a self-signed certificate for its hostname. Check the certificate's
+fingerprint with ``bmc cert`` on the board's serial console before trusting
+it, not in the web UI's BMC Shell, which runs over the connection being
+checked. It can be replaced with a certificate signed by your own CA through
+Redfish or the web UI. There are some limitations. See [HTTPS
+certificates](docs/https-certificates.md).
 
 ### BMC shell settings and configuration
 
