@@ -22,7 +22,7 @@ LOG_MODULE_REGISTER(wallabmc_config, LOG_LEVEL_INF);
 #include "ntp.h"
 #include "fs.h"
 
-#define MAX_HOSTNAME_LEN 20
+#define MAX_HOSTNAME_LEN CONFIG_NET_HOSTNAME_MAX_LEN
 
 #define MAX_PW_LEN 20
 
@@ -227,6 +227,13 @@ bool config_bmc_https_psk(const char **psk, int *psk_len)
 int config_bmc_hostname_set(const char *hostname)
 {
 	int rc;
+
+	/* It goes in DHCP requests and the HTTPS certificate, so must be valid */
+	if (strlen(hostname) > MAX_HOSTNAME_LEN || !net_hostname_valid(hostname)) {
+		LOG_ERR("Invalid hostname, use up to %d letters, digits and '-'",
+			MAX_HOSTNAME_LEN);
+		return -EINVAL;
+	}
 
 	rc = net_do_set_hostname(hostname);
 	if (rc)

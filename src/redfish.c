@@ -1092,7 +1092,8 @@ static int ethernet_patch_handler(struct http_resource_user_data *user_data)
 		ret = config_bmc_hostname_set(payload.host_name);
 		if (ret) {
 			LOG_ERR("Failed to set hostname (err=%d)", ret);
-			return HTTP_500_INTERNAL_SERVER_ERROR;
+			return ret == -EINVAL ? HTTP_400_BAD_REQUEST :
+					       HTTP_500_INTERNAL_SERVER_ERROR;
 		}
 	}
 
