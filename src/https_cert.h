@@ -5,6 +5,7 @@
 #ifndef __HTTPS_CERT_H__
 #define __HTTPS_CERT_H__
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <errno.h>
@@ -18,6 +19,16 @@ enum https_cert_source {
 
 /* Longest extra names list, comma separated */
 #define HTTPS_CERT_EXTRA_NAMES_MAX	255
+
+/*
+ * Largest certificate (the leaf, not the chain) that can be installed, as
+ * DER. A CA-issued ECDSA certificate is usually under 1.5 KiB. It bounds the
+ * buffers the certificate is shown through.
+ */
+#define HTTPS_CERT_LEAF_DER_MAX		2048
+
+/* PEM of der_len bytes: base64, a newline per 48 bytes, BEGIN/END lines and NUL */
+#define HTTPS_CERT_PEM_SIZE(der_len)	((der_len) * 4 / 3 + (der_len) / 48 + 64)
 
 #if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
 /*
@@ -46,7 +57,67 @@ void https_cert_names_changed(void);
  */
 int https_cert_extra_names_set(const char *names);
 
+/* Distinguished name attributes, empty if not present */
+struct https_cert_dn {
+	char cn[65];
+	char o[65];
+	char ou[65];
+	char l[65];
+	char st[65];
+	char c[3];
+	char email[65];
+};
+
+struct https_cert_details {
+	struct https_cert_dn subject;
+	struct https_cert_dn issuer;
+	char not_before[21];		/* YYYY-MM-DDThh:mm:ssZ */
+	char not_after[21];
+	char fingerprint[96];		/* SHA-256, AA:BB:... */
+	char serial[64];		/* AA:BB:... */
+	bool digital_signature;
+	bool key_agreement;
+	bool server_auth;
+	bool client_auth;
+};
+
+/* Details of the current certificate (the leaf, if there's a chain) */
+int https_cert_details_get(struct https_cert_details *details);
+
+/* The current certificate (the leaf, if there's a chain) as PEM */
+int https_cert_pem_get(char *buf, size_t size);
+
+struct https_cert_csr_params {
+	const char *cn;			/* Required */
+	const char *o;
+	const char *ou;
+	const char *l;
+	const char *st;
+	const char *c;
+	const char *email;
+	/* DNS names or IPv4 addresses, the current names if none */
+	const char *const *alt_names;
+	size_t alt_count;
+};
+
+/*
+ * Make a PEM certificate signing request for the HTTPS key. On failure *err
+ * explains why.
+ */
+int https_cert_csr_generate(const struct https_cert_csr_params *params,
+			    char *pem, size_t size, const char **err);
+
+/*
+ * Install a PEM certificate, optionally followed by its chain, issued for
+ * the HTTPS key. pem is modified. On failure *err explains why.
+ */
+int https_cert_install(char *pem, const char **err);
+
+/* Go back to a self-signed certificate */
+int https_cert_self_signed(void);
+
 int https_cert_cmd_show(const struct shell *sh, size_t argc, char **argv);
+int https_cert_cmd_self_signed(const struct shell *sh, size_t argc, char **argv);
 int https_cert_cmd_regenerate(const struct shell *sh, size_t argc, char **argv);
 int https_cert_cmd_names(const struct shell *sh, size_t argc, char **argv);
 #else

@@ -16,12 +16,14 @@
 #include <zephyr/shell/shell.h>
 #include <zephyr/sys/base64.h>
 #include <stdio.h>
+#include <ctype.h>
 #include <string.h>
 #include <strings.h>
 
 #include <psa/crypto.h>
 #include <mbedtls/pk.h>
 #include <mbedtls/x509_crt.h>
+#include <mbedtls/x509_csr.h>
 #include <mbedtls/oid.h>
 #include <mbedtls/asn1.h>
 #include <mbedtls/platform_util.h>
@@ -40,8 +42,14 @@ LOG_MODULE_REGISTER(wallabmc_https_cert, LOG_LEVEL_INF);
 #define SPKI_DER_MAX		96
 /* Uncompressed P-256 point, the end of the SPKI */
 #define EC_POINT_LEN		65
-/* Self-signed leaf is about 500 bytes, allow for installed certs */
-#define CERT_DER_MAX		1536
+/*
+ * The certificate credential is the leaf as DER, or the leaf and chain as
+ * NUL terminated PEM. The whole chain has to fit in one TLS record (see
+ * https_cert_install()), which is at most about 5.5 KiB as PEM.
+ */
+#define CERT_BUF_MAX		6144
+/* Most certificates in an installed chain, leaf included */
+#define CHAIN_MAX		4
 
 #define SHA256_LEN		32
 #define SHA1_LEN		20
@@ -66,7 +74,7 @@ static size_t key_len;
  * TLS certificate credential. A new certificate is written to the other
  * buffer, so the current one stays valid until the credential is swapped.
  */
-static uint8_t cert_bufs[2][CERT_DER_MAX];
+static uint8_t cert_bufs[2][CERT_BUF_MAX];
 static int cert_cur;
 static size_t cert_len;
 static uint8_t cert_source;
@@ -99,23 +107,56 @@ static struct {
 	char fingerprint[SHA256_LEN * 3];	/* AA:BB:..., NUL terminated */
 	char pin[(SHA256_LEN + 2) / 3 * 4 + 1];
 	char subject[96];
+	char issuer[96];
 	char names[320];
 	char uncovered[160];			/* Names an installed cert lacks */
 } info;
 
 /*
+ * Parse one name, a DNS name (wildcards allowed) or an IPv4 address, into
+ * e. A DNS name isn't copied, e points into name. Returns -EINVAL if it's
+ * neither.
+ */
+static int san_entry_parse(const char *name, size_t len, struct san_entry *e)
+{
+	struct in_addr addr;
+	char tmp[INET_ADDRSTRLEN];
+
+	memset(e, 0, sizeof(*e));
+
+	if (len < sizeof(tmp)) {
+		memcpy(tmp, name, len);
+		tmp[len] = '\0';
+		if (net_addr_pton(AF_INET, tmp, &addr) == 0) {
+			e->type = MBEDTLS_X509_SAN_IP_ADDRESS;
+			memcpy(e->ip4, &addr, sizeof(e->ip4));
+			e->p = e->ip4;
+			e->len = sizeof(e->ip4);
+			return 0;
+		}
+	}
+
+	if (!net_dns_name_valid(name, len, true))
+		return -EINVAL;
+
+	e->type = MBEDTLS_X509_SAN_DNS_NAME;
+	e->p = (const uint8_t *)name;
+	e->len = len;
+	return 0;
+}
+
+/*
  * Parse a list of DNS names and IPv4 addresses separated by commas or
- * spaces into out (if not NULL). Returns the number of names or -EINVAL.
+ * spaces into out (if not NULL). Returns the number of names, -EINVAL if
+ * one isn't valid or -E2BIG if there are more than max.
  */
 static int extra_names_parse(const char *names, struct san_entry *out, size_t max)
 {
+	struct san_entry tmp;
 	const char *p = names;
 	size_t n = 0;
 
 	for (;;) {
-		struct in_addr addr;
-		char tmp[INET_ADDRSTRLEN];
-		bool is_ip = false;
 		size_t len;
 
 		p += strspn(p, ", ");
@@ -123,32 +164,13 @@ static int extra_names_parse(const char *names, struct san_entry *out, size_t ma
 			break;
 		len = strcspn(p, ", ");
 
-		if (len < sizeof(tmp)) {
-			memcpy(tmp, p, len);
-			tmp[len] = '\0';
-			is_ip = net_addr_pton(AF_INET, tmp, &addr) == 0;
-		}
-		if (!is_ip && !net_dns_name_valid(p, len, true))
-			return -EINVAL;
-
 		if (n == max)
 			return -E2BIG;
-
-		if (out) {
-			struct san_entry *e = &out[n];
-
-			memset(e, 0, sizeof(*e));
-			if (is_ip) {
-				e->type = MBEDTLS_X509_SAN_IP_ADDRESS;
-				memcpy(e->ip4, &addr, sizeof(e->ip4));
-				e->p = e->ip4;
-				e->len = sizeof(e->ip4);
-			} else {
-				e->type = MBEDTLS_X509_SAN_DNS_NAME;
-				e->p = (const uint8_t *)p;
-				e->len = len;
-			}
-		}
+		if (san_entry_parse(p, len, out ? &out[n] : &tmp))
+			return -EINVAL;
+		/* The ip4 pointer is to the entry, fix it for the copy */
+		if (out && out[n].type == MBEDTLS_X509_SAN_IP_ADDRESS)
+			out[n].p = out[n].ip4;
 		n++;
 		p += len;
 	}
@@ -244,7 +266,7 @@ static int key_generate(void)
 	mbedtls_pk_init(&pk);
 	ret = mbedtls_pk_wrap_psa(&pk, id);
 	if (ret == 0)
-		ret = mbedtls_pk_write_key_der(&pk, cert_next, CERT_DER_MAX);
+		ret = mbedtls_pk_write_key_der(&pk, cert_next, CERT_BUF_MAX);
 	mbedtls_pk_free(&pk);
 	psa_destroy_key(id);
 
@@ -256,12 +278,12 @@ static int key_generate(void)
 		ret = -ENOMEM;
 	} else {
 		/* The DER is written at the end of the buffer */
-		memcpy(key_der, cert_next + CERT_DER_MAX - ret, ret);
+		memcpy(key_der, cert_next + CERT_BUF_MAX - ret, ret);
 		key_len = ret;
 		ret = 0;
 	}
 
-	mbedtls_platform_zeroize(cert_next, CERT_DER_MAX);
+	mbedtls_platform_zeroize(cert_next, CERT_BUF_MAX);
 	return ret;
 }
 
@@ -427,12 +449,12 @@ static int cert_issue(mbedtls_pk_context *pk, const uint8_t *spki, size_t spki_l
 	if (ret)
 		goto out;
 
-	ret = mbedtls_x509write_crt_der(&crt, cert_next, CERT_DER_MAX);
+	ret = mbedtls_x509write_crt_der(&crt, cert_next, CERT_BUF_MAX);
 	if (ret < 0)
 		goto out;
 
 	/* The DER is written at the end of the buffer */
-	memmove(cert_next, cert_next + CERT_DER_MAX - ret, ret);
+	memmove(cert_next, cert_next + CERT_BUF_MAX - ret, ret);
 	*len = ret;
 	ret = 0;
 
@@ -551,12 +573,13 @@ static void names_append(char *buf, size_t size, const mbedtls_x509_buf *san)
 	}
 }
 
-static int cert_parse(mbedtls_x509_crt *crt, const uint8_t *der, size_t len)
+/* Parse a certificate, DER or a NUL terminated PEM chain */
+static int cert_parse(mbedtls_x509_crt *crt, const uint8_t *buf, size_t len)
 {
 	int ret;
 
 	mbedtls_x509_crt_init(crt);
-	ret = mbedtls_x509_crt_parse_der_nocopy(crt, der, len);
+	ret = mbedtls_x509_crt_parse(crt, buf, len);
 	if (ret) {
 		LOG_ERR("Certificate parse failed (err=-0x%04x)", -ret);
 		mbedtls_x509_crt_free(crt);
@@ -576,24 +599,28 @@ static void info_update(const uint8_t *spki, size_t spki_len)
 
 	memset(&info, 0, sizeof(info));
 
-	if (sha_compute(PSA_ALG_SHA_256, cert_der, cert_len, hash, sizeof(hash)))
+	if (cert_parse(crt, cert_der, cert_len))
 		return;
+
+	/* Of the leaf, the first in a chain */
+	if (sha_compute(PSA_ALG_SHA_256, crt->raw.p, crt->raw.len, hash, sizeof(hash)))
+		goto out;
 	for (int i = 0; i < sizeof(hash); i++)
 		sprintf(info.fingerprint + i * 3 - (i ? 1 : 0), i ? ":%02X" : "%02X", hash[i]);
 
 	/* Public key pin, as used by curl --pinnedpubkey sha256//<pin> */
 	if (sha_compute(PSA_ALG_SHA_256, spki, spki_len, hash, sizeof(hash)))
-		return;
+		goto out;
 	ret = base64_encode((uint8_t *)info.pin, sizeof(info.pin), &olen, hash, sizeof(hash));
 	if (ret)
-		return;
-
-	if (cert_parse(crt, cert_der, cert_len))
-		return;
+		goto out;
 
 	ret = mbedtls_x509_dn_gets(info.subject, sizeof(info.subject), &crt->subject);
 	if (ret < 0)
 		strcpy(info.subject, "?");
+	ret = mbedtls_x509_dn_gets(info.issuer, sizeof(info.issuer), &crt->issuer);
+	if (ret < 0)
+		strcpy(info.issuer, "?");
 
 	for (cur = &crt->subject_alt_names; cur && cur->buf.p; cur = cur->next)
 		names_append(info.names, sizeof(info.names), &cur->buf);
@@ -601,8 +628,9 @@ static void info_update(const uint8_t *spki, size_t spki_len)
 	if (cert_source == HTTPS_CERT_INSTALLED)
 		cert_names_check(crt);
 
-	mbedtls_x509_crt_free(crt);
 	info.valid = true;
+out:
+	mbedtls_x509_crt_free(crt);
 }
 
 static void info_log(void)
@@ -613,6 +641,8 @@ static void info_log(void)
 	LOG_INF("HTTPS certificate (%s): %s",
 		cert_source == HTTPS_CERT_INSTALLED ? "installed" : "self-signed",
 		info.subject);
+	if (cert_source == HTTPS_CERT_INSTALLED)
+		LOG_INF("  Issuer: %s", info.issuer);
 	LOG_INF("  Names: %s", info.names);
 	LOG_INF("  SHA-256 fingerprint: %s", info.fingerprint);
 	LOG_INF("  Public key pin: sha256//%s", info.pin);
@@ -784,7 +814,7 @@ static int https_cert_load(void)
 		LOG_INF("Generated HTTPS key in %u ms", k_uptime_get_32() - t);
 		save(CONFIG_BLOB_HTTPS_KEY, key_der, key_len);
 	} else {
-		rc = config_blob_read(CONFIG_BLOB_HTTPS_CERT, cert_der, CERT_DER_MAX);
+		rc = config_blob_read(CONFIG_BLOB_HTTPS_CERT, cert_der, CERT_BUF_MAX);
 		if (rc > 0) {
 			cert_len = rc;
 			if (config_blob_read(CONFIG_BLOB_HTTPS_CERT_SOURCE, &cert_source,
@@ -966,6 +996,8 @@ int https_cert_cmd_show(const struct shell *sh, size_t argc, char **argv)
 	shell_print(sh, "Source:              %s",
 		    cert_source == HTTPS_CERT_INSTALLED ? "installed" : "self-signed");
 	shell_print(sh, "Subject:             %s", info.subject);
+	if (cert_source == HTTPS_CERT_INSTALLED)
+		shell_print(sh, "Issuer:              %s", info.issuer);
 	shell_print(sh, "Names:               %s", info.names);
 	shell_print(sh, "SHA-256 fingerprint: %s", info.fingerprint);
 	shell_print(sh, "Public key pin:      sha256//%s", info.pin);
@@ -1059,4 +1091,565 @@ int https_cert_cmd_names(const struct shell *sh, size_t argc, char **argv)
 
 	shell_print(sh, "Extra names: %s", extra_names[0] ? extra_names : "(none)");
 	return 0;
+}
+
+/*
+ * Append der as a PEM block with the given label to buf at *pos, keeping
+ * buf NUL terminated.
+ */
+static int pem_append(char *buf, size_t size, size_t *pos, const char *label,
+		      const uint8_t *der, size_t der_len)
+{
+	size_t olen;
+	int ret;
+
+	ret = snprintf(buf + *pos, size - *pos, "-----BEGIN %s-----\n", label);
+	if (ret < 0 || ret >= size - *pos)
+		return -ENOMEM;
+	*pos += ret;
+
+	/* 48 bytes is 64 characters, the PEM line length */
+	for (size_t off = 0; off < der_len; off += 48) {
+		if (base64_encode((uint8_t *)buf + *pos, size - *pos, &olen,
+				  der + off, MIN(48, der_len - off)))
+			return -ENOMEM;
+		*pos += olen;
+		if (*pos + 2 > size)
+			return -ENOMEM;
+		buf[(*pos)++] = '\n';
+		buf[*pos] = '\0';
+	}
+
+	ret = snprintf(buf + *pos, size - *pos, "-----END %s-----\n", label);
+	if (ret < 0 || ret >= size - *pos)
+		return -ENOMEM;
+	*pos += ret;
+
+	return 0;
+}
+
+#define PEM_BEGIN_CRT	"-----BEGIN CERTIFICATE-----"
+#define PEM_END_CRT	"-----END CERTIFICATE-----"
+
+/*
+ * Decode the next PEM certificate after *pp into der. The base64 is
+ * compacted in place to drop line breaks. Returns -ENOENT if there are no
+ * more.
+ */
+static int pem_next_cert(char **pp, uint8_t *der, size_t size, size_t *len)
+{
+	char *begin, *end, *w;
+
+	begin = strstr(*pp, PEM_BEGIN_CRT);
+	if (!begin)
+		return -ENOENT;
+	begin += strlen(PEM_BEGIN_CRT);
+
+	end = strstr(begin, PEM_END_CRT);
+	if (!end)
+		return -EINVAL;
+	*pp = end + strlen(PEM_END_CRT);
+
+	w = begin;
+	for (const char *r = begin; r < end; r++) {
+		if (!isspace((unsigned char)*r))
+			*w++ = *r;
+	}
+
+	if (base64_decode(der, size, len, (const uint8_t *)begin, w - begin))
+		return w - begin > size * 4 / 3 ? -ENOMEM : -EINVAL;
+
+	return 0;
+}
+
+static void dn_get(const mbedtls_x509_name *name, struct https_cert_dn *dn)
+{
+	static const struct {
+		const char *oid;
+		size_t oid_len;
+		size_t offset;
+		size_t size;
+	} attrs[] = {
+#define ATTR(oid, field) { oid, MBEDTLS_OID_SIZE(oid), offsetof(struct https_cert_dn, field), \
+			   sizeof(((struct https_cert_dn *)0)->field) }
+		ATTR(MBEDTLS_OID_AT_CN, cn),
+		ATTR(MBEDTLS_OID_AT_ORGANIZATION, o),
+		ATTR(MBEDTLS_OID_AT_ORG_UNIT, ou),
+		ATTR(MBEDTLS_OID_AT_LOCALITY, l),
+		ATTR(MBEDTLS_OID_AT_STATE, st),
+		ATTR(MBEDTLS_OID_AT_COUNTRY, c),
+		ATTR(MBEDTLS_OID_PKCS9_EMAIL, email),
+#undef ATTR
+	};
+
+	memset(dn, 0, sizeof(*dn));
+
+	for (; name; name = name->next) {
+		for (size_t i = 0; i < ARRAY_SIZE(attrs); i++) {
+			char *field = (char *)dn + attrs[i].offset;
+
+			if (name->oid.len != attrs[i].oid_len ||
+			    memcmp(name->oid.p, attrs[i].oid, attrs[i].oid_len) || field[0])
+				continue;
+			snprintf(field, attrs[i].size, "%.*s", (int)name->val.len, name->val.p);
+		}
+	}
+}
+
+static void time_get(const mbedtls_x509_time *t, char *buf, size_t size)
+{
+	snprintf(buf, size, "%04d-%02d-%02dT%02d:%02d:%02dZ",
+		 t->year, t->mon, t->day, t->hour, t->min, t->sec);
+}
+
+int https_cert_details_get(struct https_cert_details *d)
+{
+	mbedtls_x509_crt *crt = &scratch_crt;
+	size_t len = 0;
+	int ret;
+
+	memset(d, 0, sizeof(*d));
+
+	k_mutex_lock(&https_cert_lock, K_FOREVER);
+
+	if (!cert_len || !info.valid) {
+		ret = -ENOENT;
+		goto out;
+	}
+
+	ret = cert_parse(crt, cert_der, cert_len);
+	if (ret)
+		goto out;
+
+	dn_get(&crt->subject, &d->subject);
+	dn_get(&crt->issuer, &d->issuer);
+	time_get(&crt->valid_from, d->not_before, sizeof(d->not_before));
+	time_get(&crt->valid_to, d->not_after, sizeof(d->not_after));
+	strcpy(d->fingerprint, info.fingerprint);
+
+	for (size_t i = 0; i < crt->serial.len && len + 3 < sizeof(d->serial); i++)
+		len += sprintf(d->serial + len, i ? ":%02X" : "%02X", crt->serial.p[i]);
+
+	d->digital_signature = !mbedtls_x509_crt_check_key_usage(crt, MBEDTLS_X509_KU_DIGITAL_SIGNATURE);
+	d->key_agreement = !mbedtls_x509_crt_check_key_usage(crt, MBEDTLS_X509_KU_KEY_AGREEMENT);
+	d->server_auth = !mbedtls_x509_crt_check_extended_key_usage(crt, MBEDTLS_OID_SERVER_AUTH,
+					MBEDTLS_OID_SIZE(MBEDTLS_OID_SERVER_AUTH));
+	d->client_auth = !mbedtls_x509_crt_check_extended_key_usage(crt, MBEDTLS_OID_CLIENT_AUTH,
+					MBEDTLS_OID_SIZE(MBEDTLS_OID_CLIENT_AUTH));
+
+	mbedtls_x509_crt_free(crt);
+out:
+	k_mutex_unlock(&https_cert_lock);
+	return ret;
+}
+
+int https_cert_pem_get(char *buf, size_t size)
+{
+	mbedtls_x509_crt *crt = &scratch_crt;
+	size_t pos = 0;
+	int ret;
+
+	k_mutex_lock(&https_cert_lock, K_FOREVER);
+
+	if (!cert_len) {
+		ret = -ENOENT;
+		goto out;
+	}
+
+	ret = cert_parse(crt, cert_der, cert_len);
+	if (ret)
+		goto out;
+
+	/* Just the leaf */
+	buf[0] = '\0';
+	ret = pem_append(buf, size, &pos, "CERTIFICATE", crt->raw.p, crt->raw.len);
+	mbedtls_x509_crt_free(crt);
+out:
+	k_mutex_unlock(&https_cert_lock);
+	return ret;
+}
+
+/* Explains the last failure of https_cert_csr_generate() or https_cert_install() */
+static char err_msg[192];
+
+#define fail(ret_, ...)						\
+	({							\
+		snprintf(err_msg, sizeof(err_msg), __VA_ARGS__);\
+		LOG_WRN("%s", err_msg);				\
+		ret_;						\
+	})
+
+/* Append "key=value," to a subject name, escaping the value */
+static int rdn_append(char *buf, size_t size, size_t *pos, const char *key, const char *val)
+{
+	int ret;
+
+	if (!val || !val[0])
+		return 0;
+
+	ret = snprintf(buf + *pos, size - *pos, "%s%s=", *pos ? "," : "", key);
+	if (ret < 0 || ret >= size - *pos)
+		return -ENAMETOOLONG;
+	*pos += ret;
+
+	for (; *val; val++) {
+		if (*pos + 3 > size)
+			return -ENAMETOOLONG;
+		if (strchr(",=+<>#;\"\\", *val))
+			buf[(*pos)++] = '\\';
+		buf[(*pos)++] = *val;
+	}
+	buf[*pos] = '\0';
+
+	return 0;
+}
+
+int https_cert_csr_generate(const struct https_cert_csr_params *params,
+			    char *pem, size_t size, const char **err)
+{
+	static struct san_entry csr_sans[SAN_MAX + 1];
+	static mbedtls_x509_san_list san_list[SAN_MAX + 1];
+	static char subject[512];
+	mbedtls_x509write_csr csr;
+	mbedtls_pk_context pk;
+	size_t pos = 0, count = 0;
+	struct san_entry cn_entry;
+	bool have_cn = false;
+	int ret;
+
+	*err = err_msg;
+
+	if (!params->cn || !params->cn[0])
+		return fail(-EINVAL, "CommonName is required");
+	if (params->c && params->c[0] &&
+	    (strlen(params->c) != 2 || !isalpha((unsigned char)params->c[0]) ||
+	     !isalpha((unsigned char)params->c[1])))
+		return fail(-EINVAL, "Country must be a two letter code");
+
+	k_mutex_lock(&https_cert_lock, K_FOREVER);
+
+	if (!key_len) {
+		ret = fail(-ENOENT, "No HTTPS key");
+		goto out_unlock;
+	}
+
+	/* Most significant first, as they're usually shown */
+	subject[0] = '\0';
+	ret = rdn_append(subject, sizeof(subject), &pos, "C", params->c);
+	if (!ret)
+		ret = rdn_append(subject, sizeof(subject), &pos, "ST", params->st);
+	if (!ret)
+		ret = rdn_append(subject, sizeof(subject), &pos, "L", params->l);
+	if (!ret)
+		ret = rdn_append(subject, sizeof(subject), &pos, "O", params->o);
+	if (!ret)
+		ret = rdn_append(subject, sizeof(subject), &pos, "OU", params->ou);
+	if (!ret)
+		ret = rdn_append(subject, sizeof(subject), &pos, "CN", params->cn);
+	if (!ret)
+		ret = rdn_append(subject, sizeof(subject), &pos, "emailAddress", params->email);
+	if (ret) {
+		ret = fail(-EINVAL, "Subject is too long");
+		goto out_unlock;
+	}
+
+	/* The alternative names, or the current names if there are none */
+	if (params->alt_count) {
+		for (size_t i = 0; i < params->alt_count; i++) {
+			if (count == SAN_MAX) {
+				ret = fail(-E2BIG, "Too many AlternativeNames, at most %d", SAN_MAX);
+				goto out_unlock;
+			}
+			if (san_entry_parse(params->alt_names[i], strlen(params->alt_names[i]),
+					    &csr_sans[count])) {
+				ret = fail(-EINVAL, "AlternativeNames: \"%s\" is not a DNS name or IPv4 address",
+					   params->alt_names[i]);
+				goto out_unlock;
+			}
+			count++;
+		}
+	} else {
+		names_build();
+		memcpy(csr_sans, sans, san_count * sizeof(sans[0]));
+		count = san_count;
+	}
+	for (size_t i = 0; i < count; i++) {
+		if (csr_sans[i].type == MBEDTLS_X509_SAN_IP_ADDRESS)
+			csr_sans[i].p = csr_sans[i].ip4;
+	}
+
+	/* CAs generally require the CommonName to be one of the names too */
+	if (!san_entry_parse(params->cn, strlen(params->cn), &cn_entry)) {
+		for (size_t i = 0; i < count; i++)
+			have_cn |= san_entry_eq(&csr_sans[i], cn_entry.type, cn_entry.p, cn_entry.len);
+		if (!have_cn) {
+			csr_sans[count] = cn_entry;
+			if (cn_entry.type == MBEDTLS_X509_SAN_IP_ADDRESS)
+				csr_sans[count].p = csr_sans[count].ip4;
+			count++;
+		}
+	}
+
+	ret = key_load(&pk);
+	if (ret) {
+		ret = fail(ret, "Could not load the HTTPS key");
+		goto out_unlock;
+	}
+
+	mbedtls_x509write_csr_init(&csr);
+	mbedtls_x509write_csr_set_md_alg(&csr, MBEDTLS_MD_SHA256);
+	mbedtls_x509write_csr_set_key(&csr, &pk);
+
+	ret = mbedtls_x509write_csr_set_subject_name(&csr, subject);
+	if (ret) {
+		ret = fail(-EINVAL, "Invalid subject (err=-0x%04x)", -ret);
+		goto out;
+	}
+
+	ret = mbedtls_x509write_csr_set_key_usage(&csr, MBEDTLS_X509_KU_DIGITAL_SIGNATURE);
+	if (ret)
+		goto out_err;
+
+	/* Written in reverse order, so link the list backwards */
+	memset(san_list, 0, sizeof(san_list));
+	for (size_t i = 0; i < count; i++) {
+		san_list[i].node.type = csr_sans[i].type;
+		san_list[i].node.san.unstructured_name.p = (unsigned char *)csr_sans[i].p;
+		san_list[i].node.san.unstructured_name.len = csr_sans[i].len;
+		san_list[i].next = i ? &san_list[i - 1] : NULL;
+	}
+	if (count) {
+		ret = mbedtls_x509write_csr_set_subject_alternative_name(&csr, &san_list[count - 1]);
+		if (ret)
+			goto out_err;
+	}
+
+	/* cert_next isn't in use, so use it as scratch */
+	ret = mbedtls_x509write_csr_der(&csr, cert_next, CERT_BUF_MAX);
+	if (ret < 0)
+		goto out_err;
+
+	pos = 0;
+	pem[0] = '\0';
+	ret = pem_append(pem, size, &pos, "CERTIFICATE REQUEST",
+			 cert_next + CERT_BUF_MAX - ret, ret);
+	if (ret)
+		ret = fail(ret, "CSR is too large");
+	goto out;
+
+out_err:
+	ret = fail(-EIO, "Could not create the CSR (err=-0x%04x)", -ret);
+out:
+	mbedtls_x509write_csr_free(&csr);
+	mbedtls_pk_free(&pk);
+out_unlock:
+	k_mutex_unlock(&https_cert_lock);
+	return ret;
+}
+
+int https_cert_install(char *pem, const char **err)
+{
+	/* DER of the leaf and chain, at most what fits in a TLS record */
+	static uint8_t ders[CONFIG_MBEDTLS_SSL_MAX_CONTENT_LEN];
+	mbedtls_x509_crt *crt = &scratch_crt;
+	mbedtls_x509_crt *c;
+	size_t offs[CHAIN_MAX], lens[CHAIN_MAX];
+	size_t n = 0, used = 0, len, pos;
+	uint8_t spki[SPKI_DER_MAX];
+	size_t spki_len;
+	mbedtls_pk_context pk;
+	char *p = pem;
+	int ret;
+
+	*err = err_msg;
+
+	k_mutex_lock(&https_cert_lock, K_FOREVER);
+	mbedtls_x509_crt_init(crt);
+
+	if (!key_len) {
+		ret = fail(-ENOENT, "No HTTPS key");
+		goto out;
+	}
+
+	for (;;) {
+		ret = pem_next_cert(&p, ders + used, sizeof(ders) - used, &len);
+		if (ret == -ENOENT)
+			break;
+		if (ret == -ENOMEM) {
+			ret = fail(-E2BIG, "Certificate chain is too large, at most %zu bytes of DER",
+				   sizeof(ders));
+			goto out;
+		}
+		if (ret) {
+			ret = fail(-EINVAL, "Certificate %zu is not valid PEM", n + 1);
+			goto out;
+		}
+		if (n == CHAIN_MAX) {
+			ret = fail(-E2BIG, "Too many certificates, at most %d including the chain",
+				   CHAIN_MAX);
+			goto out;
+		}
+		offs[n] = used;
+		lens[n] = len;
+		used += len;
+		n++;
+	}
+
+	if (!n) {
+		ret = fail(-EINVAL, "No PEM certificate found");
+		goto out;
+	}
+
+	/* The leaf has to fit in the buffers it's shown through */
+	if (lens[0] > HTTPS_CERT_LEAF_DER_MAX) {
+		ret = fail(-E2BIG, "Certificate is too large (%zu bytes), at most %d bytes of DER",
+			   lens[0], HTTPS_CERT_LEAF_DER_MAX);
+		goto out;
+	}
+
+	/*
+	 * The server sends the leaf and chain in one TLS record: each
+	 * certificate has a 3 byte length and, in TLS 1.3, 2 bytes of
+	 * extensions, plus the message header.
+	 */
+	if (used + 5 * n + 8 > CONFIG_MBEDTLS_SSL_MAX_CONTENT_LEN) {
+		ret = fail(-E2BIG, "Certificate chain is too large (%zu bytes), it must fit in %d bytes",
+			   used + 5 * n + 8, CONFIG_MBEDTLS_SSL_MAX_CONTENT_LEN);
+		goto out;
+	}
+
+	for (size_t i = 0; i < n; i++) {
+		ret = mbedtls_x509_crt_parse_der(crt, ders + offs[i], lens[i]);
+		if (ret) {
+			ret = fail(-EINVAL, "Certificate %zu could not be parsed (err=-0x%04x), only "
+				   "ECDSA P-256 keys and ECDSA signatures are supported", i + 1, -ret);
+			goto out;
+		}
+	}
+
+	ret = key_load(&pk);
+	if (ret) {
+		ret = fail(ret, "Could not load the HTTPS key");
+		goto out;
+	}
+	ret = key_spki(&pk, spki, &spki_len);
+	mbedtls_pk_free(&pk);
+	if (ret) {
+		ret = fail(ret, "Could not load the HTTPS key");
+		goto out;
+	}
+
+	if (crt->pk_raw.len != spki_len || memcmp(crt->pk_raw.p, spki, spki_len)) {
+		ret = fail(-EINVAL, "Certificate is not for this BMC's key, it must be issued "
+			   "from a CSR made with GenerateCSR");
+		goto out;
+	}
+
+	/* Each certificate in the chain must be the issuer of the one before */
+	n = 1;
+	for (c = crt; c->next; c = c->next, n++) {
+		if (c->issuer_raw.len != c->next->subject_raw.len ||
+		    memcmp(c->issuer_raw.p, c->next->subject_raw.p, c->issuer_raw.len)) {
+			ret = fail(-EINVAL, "Certificate %zu is not the issuer of certificate %zu",
+				   n + 1, n);
+			goto out;
+		}
+	}
+
+	/*
+	 * And must have signed it. The last certificate is the trust anchor,
+	 * so isn't checked itself. Validity dates aren't checked, there's no
+	 * MBEDTLS_HAVE_TIME_DATE.
+	 */
+	if (n > 1) {
+		uint32_t flags;
+
+		ret = mbedtls_x509_crt_verify(crt, c, NULL, NULL, &flags, NULL, NULL);
+		if (ret) {
+			char why[96];
+
+			mbedtls_x509_crt_verify_info(why, sizeof(why), "", flags);
+			why[strcspn(why, "\n")] = '\0';
+			ret = fail(-EINVAL, "Certificate chain does not verify: %s", why);
+			goto out;
+		}
+	}
+
+	if (n == 1) {
+		/* A single certificate is registered as DER */
+		memcpy(cert_next, ders, lens[0]);
+		len = lens[0];
+	} else {
+		/* A chain is registered as NUL terminated PEM */
+		pos = 0;
+		cert_next[0] = '\0';
+		for (size_t i = 0; i < n; i++) {
+			ret = pem_append((char *)cert_next, CERT_BUF_MAX, &pos, "CERTIFICATE",
+					 ders + offs[i], lens[i]);
+			if (ret) {
+				ret = fail(-E2BIG, "Certificate chain is too large");
+				goto out;
+			}
+		}
+		len = pos + 1;
+	}
+
+	/* info_update() below uses scratch_crt too */
+	mbedtls_x509_crt_free(crt);
+
+	ret = cert_switch(len, HTTPS_CERT_INSTALLED);
+	if (ret) {
+		ret = fail(ret, "Could not register the certificate");
+		goto out;
+	}
+
+	save(CONFIG_BLOB_HTTPS_CERT, cert_der, cert_len);
+	save(CONFIG_BLOB_HTTPS_CERT_SOURCE, &cert_source, sizeof(cert_source));
+
+	names_build();
+	info_update(spki, spki_len);
+	info_log();
+	ret = 0;
+
+out:
+	mbedtls_x509_crt_free(crt);
+	k_mutex_unlock(&https_cert_lock);
+	return ret;
+}
+
+int https_cert_self_signed(void)
+{
+	int ret;
+
+	k_mutex_lock(&https_cert_lock, K_FOREVER);
+	if (!key_len) {
+		ret = -ENOENT;
+	} else {
+		names_build();
+		ret = cert_reissue();
+	}
+	k_mutex_unlock(&https_cert_lock);
+
+	return ret;
+}
+
+int https_cert_cmd_self_signed(const struct shell *sh, size_t argc, char **argv)
+{
+	int ret;
+
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	if (!is_boot_finished()) {
+		shell_error(sh, "must wait for boot to finish");
+		return -EAGAIN;
+	}
+
+	ret = https_cert_self_signed();
+	if (ret) {
+		shell_error(sh, "Could not issue a self-signed certificate (err=%d)", ret);
+		return ret;
+	}
+
+	return https_cert_cmd_show(sh, 0, NULL);
 }

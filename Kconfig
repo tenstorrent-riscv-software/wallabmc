@@ -107,9 +107,13 @@ config MBEDTLS_DEBUG_LEVEL
 	depends on APP_CRYPTO_DEBUG
 	default 1
 
+# An installed certificate chain is parsed by every connection, at the
+# largest chain that can be installed, 5 concurrent HTTPS connections peak
+# at about 44 KiB, against 35 KiB with a self-signed certificate.
 config MBEDTLS_HEAP_SIZE
 	int
 	depends on APP_CRYPTO
+	default 57344 if APP_HTTPS_PUBLIC_KEY
 	default 49152
 
 config NET_PKT_RX_COUNT
@@ -193,6 +197,8 @@ config APP_HTTPS_PUBLIC_KEY
 	select MBEDTLS_X509_CSR_WRITE_C
 	# Subject key identifier
 	select PSA_WANT_ALG_SHA_1
+	# Installed certificate chains are registered as PEM
+	select MBEDTLS_PEM_PARSE_C
 
 config APP_HTTPS_PSK
 	bool "HTTPS PSK support"
