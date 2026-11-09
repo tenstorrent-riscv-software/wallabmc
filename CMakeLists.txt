@@ -78,6 +78,10 @@ target_sources_ifdef(CONFIG_HTTP_SERVER app PRIVATE
 	src/http.c
 )
 
+target_sources_ifdef(CONFIG_APP_HTTPS_PUBLIC_KEY app PRIVATE
+	src/https_cert.c
+)
+
 if(CONFIG_MBEDTLS)
   # For TF_PSA_CRYPTO_USER_CONFIG_FILE and threading_alt.h, which the
   # mbedTLS libraries include too.
@@ -144,61 +148,6 @@ if(CONFIG_APP_WEB)
     generate_inc_file_for_target(app
       static_web_resources/${web_resource}
       ${gen_dir}/${web_resource}.inc
-    )
-  endforeach()
-endif()
-
-if(CONFIG_APP_CRYPTO)
-  find_program(OPENSSL_EXECUTABLE openssl)
-  if(NOT OPENSSL_EXECUTABLE)
-    message(FATAL_ERROR "CONFIG_APP_CRYPTO requires openssl in PATH")
-  endif()
-  find_program(BASH_EXECUTABLE bash)
-  if(NOT BASH_EXECUTABLE)
-    message(FATAL_ERROR "Unable to find bash, needed to generate certificates")
-  endif()
-
-  set(generated_certs_dir ${CMAKE_CURRENT_BINARY_DIR}/generated_certs)
-  set(generated_server_cert_der ${generated_certs_dir}/server_cert.der)
-  set(generated_server_privkey_der ${generated_certs_dir}/server_privkey.der)
-
-  add_custom_command(
-    OUTPUT
-      ${generated_server_cert_der}
-      ${generated_server_privkey_der}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${generated_certs_dir}
-    COMMAND ${BASH_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/src/certs/gen_ca_cert.sh ${OPENSSL_EXECUTABLE}
-    COMMAND ${BASH_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/src/certs/gen_server_cert.sh ${OPENSSL_EXECUTABLE}
-    WORKING_DIRECTORY ${generated_certs_dir}
-    DEPENDS
-      ${CMAKE_CURRENT_SOURCE_DIR}/src/certs/gen_ca_cert.sh
-      ${CMAKE_CURRENT_SOURCE_DIR}/src/certs/gen_server_cert.sh
-    BYPRODUCTS
-      ${generated_certs_dir}/ca_cert.pem
-      ${generated_certs_dir}/ca_privkey.pem
-      ${generated_certs_dir}/ca.srl
-      ${generated_certs_dir}/server_cert.pem
-      ${generated_certs_dir}/server_privkey.pem
-      ${generated_certs_dir}/server_csr.pem
-      ${generated_certs_dir}/server_csr.ext
-    COMMENT "Generating TLS certificates for APP_CRYPTO"
-    VERBATIM
-  )
-
-  add_custom_target(app_generate_certs
-    DEPENDS
-      ${generated_server_cert_der}
-      ${generated_server_privkey_der}
-  )
-  add_dependencies(app app_generate_certs)
-
-  foreach(inc_file
-    server_cert.der
-    server_privkey.der
-  )
-    generate_inc_file_for_target(app
-      ${generated_certs_dir}/${inc_file}
-      ${gen_dir}/${inc_file}.inc
     )
   endforeach()
 endif()

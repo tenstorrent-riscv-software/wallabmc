@@ -182,6 +182,17 @@ config APP_HTTPS_PUBLIC_KEY
 	default y
 	depends on APP_HTTPS
 	select APP_CRYPTO_PUBLIC_KEY
+	# The key and self-signed certificate are generated on the board
+	select MBEDTLS_PK_PARSE_C
+	select MBEDTLS_PK_WRITE_C
+	select MBEDTLS_X509_CRT_PARSE_C
+	select MBEDTLS_X509_CRT_WRITE_C
+	# Zephyr only defines MBEDTLS_X509_CREATE_C, which the certificate
+	# writer needs, along with the CSR writer. Unused code is discarded
+	# at link time.
+	select MBEDTLS_X509_CSR_WRITE_C
+	# Subject key identifier
+	select PSA_WANT_ALG_SHA_1
 
 config APP_HTTPS_PSK
 	bool "HTTPS PSK support"
