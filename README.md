@@ -139,6 +139,14 @@ wss if ``CONFIG_APP_HTTPS`` (e.g., ``wss://wallabmc.local.net/console/bmc``).
 The websocket host console endpoint URL is /console/host and supports ws and
 wss if ``CONFIG_APP_HTTPS`` (e.g., ``wss://wallabmc.local.net/console/host``).
 
+### HTTPS certificates
+
+With ``CONFIG_APP_HTTPS`` each BMC generates its own HTTPS key on first boot
+and a self-signed certificate for its hostname. Check the certificate's
+fingerprint with ``bmc cert`` on the serial console before trusting it. It can
+be replaced with a certificate signed by your own CA through Redfish or the web
+UI. There are some limitations. See [HTTPS certificates](docs/https-certificates.md).
+
 ### BMC shell settings and configuration
 
 * ``help`` command listing with hierarchical help (e.g., ``help config``).
