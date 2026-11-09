@@ -141,9 +141,13 @@ config MBEDTLS_DEBUG_LEVEL
 	depends on APP_CRYPTO_DEBUG
 	default 1
 
+# An installed certificate chain is parsed by every connection, at the
+# largest chain that can be installed, 5 concurrent HTTPS connections peak
+# at about 44 KiB, against 35 KiB with a self-signed certificate.
 config MBEDTLS_HEAP_SIZE
 	int
 	depends on APP_CRYPTO
+	default 57344 if APP_HTTPS_PUBLIC_KEY
 	default 49152
 
 config NET_PKT_RX_COUNT
@@ -241,6 +245,12 @@ config APP_HTTPS_PUBLIC_KEY
 	# The BMC UUID is in the self-signed certificate's subject, so it must
 	# be unique to the board, not the fixed fallback UUID
 	select APP_BMC_UUID
+	# Installed certificate chains are registered as PEM
+	select MBEDTLS_PEM_PARSE_C
+	# CAs often have P-384 keys, eg. Let's Encrypt's ECDSA intermediates,
+	# so allow them in an installed chain. The BMC's own key is still
+	# P-256, which is faster, see docs/https-certificates.md.
+	select PSA_WANT_ECC_SECP_R1_384
 
 config APP_HTTPS_PSK
 	bool "HTTPS PSK support"
