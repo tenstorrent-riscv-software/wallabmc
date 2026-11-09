@@ -24,6 +24,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include "config.h"
 #include "http.h"
@@ -32,6 +33,7 @@
 #include "sensors.h"
 #include "vpd.h"
 #include "git_sha.h"
+#include "https_cert.h"
 
 LOG_MODULE_REGISTER(redfish_app, CONFIG_LOG_DEFAULT_LEVEL);
 
@@ -200,7 +202,22 @@ struct http_resource_user_data {
 #define USER_DATA_BUFFER_GET_SIZE	1024
 #define USER_DATA_BUFFER_POST_SIZE	512
 
+#if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
+/*
+ * A certificate chain for ReplaceCertificate, as escaped JSON. The request
+ * arrives in one TLS record, so it can't be bigger than one.
+ */
+#define USER_DATA_BUFFER_CERT_POST_SIZE	CONFIG_MBEDTLS_SSL_MAX_CONTENT_LEN
+/*
+ * The largest certificate that can be installed, plus its escaped line
+ * breaks and the rest of the Certificate resource.
+ */
+#define USER_DATA_BUFFER_CERT_GET_SIZE	(HTTPS_CERT_PEM_SIZE(HTTPS_CERT_LEAF_DER_MAX) + 1536)
+#define USER_DATA_HEAP_SIZE		(2048 + USER_DATA_BUFFER_CERT_POST_SIZE + \
+					 USER_DATA_BUFFER_CERT_GET_SIZE)
+#else
 #define USER_DATA_HEAP_SIZE		2048
+#endif
 
 static K_HEAP_DEFINE(heap_data_buffer, USER_DATA_HEAP_SIZE);
 
@@ -586,6 +603,9 @@ struct redfish_service_root {
 	struct redfish_link systems;
 	struct redfish_link managers;
 	struct redfish_link chassis;
+#if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
+	struct redfish_link certificate_service;
+#endif
 	struct redfish_service_root_links links;
 };
 static const struct json_obj_descr service_root_descr[] = {
@@ -611,6 +631,10 @@ static const struct json_obj_descr service_root_descr[] = {
 				    systems, link_descr),
 	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_service_root, "Chassis",
 				    chassis, link_descr),
+#if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_service_root, "CertificateService",
+				    certificate_service, link_descr),
+#endif
 	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_service_root, "Links",
 				    links, service_root_links_descr),
 };
@@ -640,6 +664,11 @@ static int service_root_get_handler(struct http_resource_user_data *user_data)
 		.chassis = {
 			.odata_id = "/redfish/v1/Chassis"
 		},
+#if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
+		.certificate_service = {
+			.odata_id = "/redfish/v1/CertificateService"
+		},
+#endif
 		.links = {
 			.sessions = {
 				.odata_id = "/redfish/v1/SessionService/Sessions"
@@ -1355,16 +1384,35 @@ static const struct json_obj_descr ntp_descr[] = {
 	JSON_OBJ_DESCR_ARRAY_NAMED(struct redfish_ntp , "NTPServers", ntp_servers, 1, ntp_servers_count, JSON_TOK_STRING),
 };
 
+#if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
+struct redfish_https {
+	uint8_t protocol_enabled;
+	int32_t port;
+	struct redfish_link certificates;
+};
+static const struct json_obj_descr https_descr[] = {
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_https, "ProtocolEnabled", protocol_enabled, JSON_TOK_TRUE),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_https, "Port", port, JSON_TOK_NUMBER),
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_https, "Certificates", certificates, link_descr),
+};
+#endif
+
 /* NetworkProtocol */
 struct redfish_network_protocol {
 	const char *odata_type;
 	const char *id;
 	struct redfish_ntp ntp;
+#if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
+	struct redfish_https https;
+#endif
 };
 static const struct json_obj_descr network_protocol_descr[] = {
 	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_network_protocol, "@odata.type", odata_type, JSON_TOK_STRING),
 	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_network_protocol, "Id", id, JSON_TOK_STRING),
 	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_network_protocol, "NTP", ntp, ntp_descr),
+#if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_network_protocol, "HTTPS", https, https_descr),
+#endif
 };
 
 /* PATCH /redfish/v1/Managers/bmc/NetworkProtocol */
@@ -1409,6 +1457,15 @@ static int network_protocol_get_handler(struct http_resource_user_data *user_dat
 		.ntp = {
 			.protocol_enabled = config_bmc_use_ntp(),
 		},
+#if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
+		.https = {
+			.protocol_enabled = true,
+			.port = 443,
+			.certificates = {
+				.odata_id = "/redfish/v1/Managers/bmc/NetworkProtocol/HTTPS/Certificates",
+			},
+		},
+#endif
 	};
 	int ret;
 
@@ -2027,6 +2084,577 @@ REDFISH_HANDLER(sensor_temp_bmc, "/redfish/v1/Chassis/1/Sensors/TempBmc",
 		true, /* require auth */
 		sensor_temp_bmc_get_handler, NULL, NULL);
 #endif /* CONFIG_APP_SENSORS */
+
+#if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
+/*** Certificates: /redfish/v1/CertificateService and the HTTPS certificate ***/
+#define CERT_SERVICE_URL	"/redfish/v1/CertificateService"
+#define HTTPS_CERTS_URL		"/redfish/v1/Managers/bmc/NetworkProtocol/HTTPS/Certificates"
+#define HTTPS_CERT_URL		HTTPS_CERTS_URL "/1"
+
+/* CertificateService */
+struct redfish_action_target {
+	const char *target;
+};
+static const struct json_obj_descr action_target_descr[] = {
+	JSON_OBJ_DESCR_PRIM(struct redfish_action_target, target, JSON_TOK_STRING),
+};
+
+struct redfish_cert_service_actions {
+	struct redfish_action_target generate_csr;
+	struct redfish_action_target replace_certificate;
+};
+static const struct json_obj_descr cert_service_actions_descr[] = {
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_cert_service_actions,
+				    "#CertificateService.GenerateCSR",
+				    generate_csr, action_target_descr),
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_cert_service_actions,
+				    "#CertificateService.ReplaceCertificate",
+				    replace_certificate, action_target_descr),
+};
+
+struct redfish_cert_service {
+	const char *odata_id;
+	const char *odata_type;
+	const char *id;
+	const char *name;
+	struct redfish_cert_service_actions actions;
+	struct redfish_link certificate_locations;
+};
+static const struct json_obj_descr cert_service_descr[] = {
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert_service, "@odata.id", odata_id, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert_service, "@odata.type", odata_type, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert_service, "Id", id, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert_service, "Name", name, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_cert_service, "Actions", actions,
+				    cert_service_actions_descr),
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_cert_service, "CertificateLocations",
+				    certificate_locations, link_descr),
+};
+
+/* GET /redfish/v1/CertificateService */
+static int cert_service_get_handler(struct http_resource_user_data *user_data)
+{
+	const struct redfish_cert_service cert_service = {
+		.odata_id = CERT_SERVICE_URL,
+		.odata_type = "#CertificateService.v1_0_4.CertificateService",
+		.id = "CertificateService",
+		.name = "Certificate Service",
+		.actions = {
+			.generate_csr = {
+				.target = CERT_SERVICE_URL "/Actions/CertificateService.GenerateCSR",
+			},
+			.replace_certificate = {
+				.target = CERT_SERVICE_URL "/Actions/CertificateService.ReplaceCertificate",
+			},
+		},
+		.certificate_locations = {
+			.odata_id = CERT_SERVICE_URL "/CertificateLocations",
+		},
+	};
+	int ret;
+
+	ret = json_obj_encode(cert_service_descr, ARRAY_SIZE(cert_service_descr),
+			      &cert_service, user_data_json_append, user_data);
+	if (ret < 0) {
+		LOG_ERR("Failed to encode certificate service: %d", ret);
+		return HTTP_500_INTERNAL_SERVER_ERROR;
+	}
+
+	return 0;
+}
+
+REDFISH_HANDLER(cert_service, CERT_SERVICE_URL,
+		true, /* require auth */
+		cert_service_get_handler, NULL, NULL);
+
+/* CertificateLocations */
+struct redfish_cert_locations_links {
+	struct redfish_member certificates[1];
+	size_t certificates_len;
+	int32_t certificates_count;
+};
+static const struct json_obj_descr cert_locations_links_descr[] = {
+	JSON_OBJ_DESCR_OBJ_ARRAY_NAMED(struct redfish_cert_locations_links, "Certificates",
+				       certificates, 1, certificates_len,
+				       member_descr, ARRAY_SIZE(member_descr)),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert_locations_links, "Certificates@odata.count",
+				  certificates_count, JSON_TOK_NUMBER),
+};
+
+struct redfish_cert_locations {
+	const char *odata_id;
+	const char *odata_type;
+	const char *id;
+	const char *name;
+	struct redfish_cert_locations_links links;
+};
+static const struct json_obj_descr cert_locations_descr[] = {
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert_locations, "@odata.id", odata_id, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert_locations, "@odata.type", odata_type, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert_locations, "Id", id, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert_locations, "Name", name, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_cert_locations, "Links", links,
+				    cert_locations_links_descr),
+};
+
+/* GET /redfish/v1/CertificateService/CertificateLocations */
+static int cert_locations_get_handler(struct http_resource_user_data *user_data)
+{
+	const struct redfish_cert_locations cert_locations = {
+		.odata_id = CERT_SERVICE_URL "/CertificateLocations",
+		.odata_type = "#CertificateLocations.v1_0_2.CertificateLocations",
+		.id = "CertificateLocations",
+		.name = "Certificate Locations",
+		.links = {
+			.certificates = { { .odata_id = HTTPS_CERT_URL } },
+			.certificates_len = 1,
+			.certificates_count = 1,
+		},
+	};
+	int ret;
+
+	ret = json_obj_encode(cert_locations_descr, ARRAY_SIZE(cert_locations_descr),
+			      &cert_locations, user_data_json_append, user_data);
+	if (ret < 0) {
+		LOG_ERR("Failed to encode certificate locations: %d", ret);
+		return HTTP_500_INTERNAL_SERVER_ERROR;
+	}
+
+	return 0;
+}
+
+REDFISH_HANDLER(cert_locations, CERT_SERVICE_URL "/CertificateLocations",
+		true, /* require auth */
+		cert_locations_get_handler, NULL, NULL);
+
+/* GET /redfish/v1/Managers/bmc/NetworkProtocol/HTTPS/Certificates */
+static int https_certs_get_handler(struct http_resource_user_data *user_data)
+{
+	const struct redfish_collection collection = {
+		.odata_id = HTTPS_CERTS_URL,
+		.odata_type = "#CertificateCollection.CertificateCollection",
+		.name = "HTTPS Certificate Collection",
+		.members_count = 1,
+		.members = { { .odata_id = HTTPS_CERT_URL } },
+		.members_len = 1,
+	};
+	int ret;
+
+	ret = json_obj_encode(collection_descr, ARRAY_SIZE(collection_descr),
+			      &collection, user_data_json_append, user_data);
+	if (ret < 0) {
+		LOG_ERR("Failed to encode HTTPS certificate collection: %d", ret);
+		return HTTP_500_INTERNAL_SERVER_ERROR;
+	}
+
+	return 0;
+}
+
+REDFISH_HANDLER(https_certs, HTTPS_CERTS_URL,
+		true, /* require auth */
+		https_certs_get_handler, NULL, NULL);
+
+/* Certificate */
+struct redfish_cert_dn {
+	const char *cn;
+	const char *o;
+	const char *ou;
+	const char *l;
+	const char *st;
+	const char *c;
+	const char *email;
+};
+static const struct json_obj_descr cert_dn_descr[] = {
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert_dn, "CommonName", cn, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert_dn, "Organization", o, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert_dn, "OrganizationalUnit", ou, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert_dn, "City", l, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert_dn, "State", st, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert_dn, "Country", c, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert_dn, "Email", email, JSON_TOK_STRING),
+};
+
+struct redfish_cert {
+	const char *odata_id;
+	const char *odata_type;
+	const char *id;
+	const char *name;
+	const char *certificate_string;
+	const char *certificate_type;
+	struct redfish_cert_dn subject;
+	struct redfish_cert_dn issuer;
+	const char *valid_not_before;
+	const char *valid_not_after;
+	const char *key_usage[4];
+	size_t key_usage_len;
+	const char *fingerprint;
+	const char *fingerprint_hash_algorithm;
+	const char *serial_number;
+};
+
+/* Subject and Issuer are filled in by cert_get_handler() */
+#define CERT_DESCR_SUBJECT	6
+#define CERT_DESCR_ISSUER	7
+static const struct json_obj_descr cert_descr[] = {
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert, "@odata.id", odata_id, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert, "@odata.type", odata_type, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert, "Id", id, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert, "Name", name, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert, "CertificateString",
+				  certificate_string, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert, "CertificateType",
+				  certificate_type, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_cert, "Subject", subject, cert_dn_descr),
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_cert, "Issuer", issuer, cert_dn_descr),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert, "ValidNotBefore",
+				  valid_not_before, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert, "ValidNotAfter",
+				  valid_not_after, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_ARRAY_NAMED(struct redfish_cert, "KeyUsage", key_usage, 4,
+				   key_usage_len, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert, "Fingerprint", fingerprint, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert, "FingerprintHashAlgorithm",
+				  fingerprint_hash_algorithm, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_cert, "SerialNumber",
+				  serial_number, JSON_TOK_STRING),
+};
+
+/*
+ * Only the attributes that are present are included, so make descriptors
+ * for those. dn_descr must have room for ARRAY_SIZE(cert_dn_descr).
+ */
+static size_t cert_dn_fill(const struct https_cert_dn *dn, struct redfish_cert_dn *out,
+			   struct json_obj_descr *dn_descr)
+{
+	const char *values[] = { dn->cn, dn->o, dn->ou, dn->l, dn->st, dn->c, dn->email };
+	const char **fields = (const char **)out;
+	size_t n = 0;
+
+	BUILD_ASSERT(ARRAY_SIZE(values) == ARRAY_SIZE(cert_dn_descr));
+	BUILD_ASSERT(sizeof(struct redfish_cert_dn) == sizeof(values));
+
+	for (size_t i = 0; i < ARRAY_SIZE(values); i++) {
+		fields[i] = values[i];
+		if (values[i][0])
+			dn_descr[n++] = cert_dn_descr[i];
+	}
+
+	return n;
+}
+
+/* GET /redfish/v1/Managers/bmc/NetworkProtocol/HTTPS/Certificates/1 */
+static int cert_get_handler(struct http_resource_user_data *user_data)
+{
+	/* The handler isn't reentered, keep these off the stack */
+	static struct https_cert_details details;
+	static char pem[HTTPS_CERT_PEM_SIZE(HTTPS_CERT_LEAF_DER_MAX)];
+	static struct json_obj_descr descr[ARRAY_SIZE(cert_descr)];
+	static struct json_obj_descr subject_descr[ARRAY_SIZE(cert_dn_descr)];
+	static struct json_obj_descr issuer_descr[ARRAY_SIZE(cert_dn_descr)];
+	struct redfish_cert cert = {
+		.odata_id = HTTPS_CERT_URL,
+		.odata_type = "#Certificate.v1_8_0.Certificate",
+		.id = "1",
+		.name = "HTTPS Certificate",
+		.certificate_string = pem,
+		.certificate_type = "PEM",
+		.valid_not_before = details.not_before,
+		.valid_not_after = details.not_after,
+		.fingerprint = details.fingerprint,
+		.fingerprint_hash_algorithm = "TPM_ALG_SHA256",
+		.serial_number = details.serial,
+	};
+	int ret;
+
+	ret = https_cert_details_get(&details);
+	if (!ret)
+		ret = https_cert_pem_get(pem, sizeof(pem));
+	if (ret)
+		return ret == -ENOENT ? HTTP_404_NOT_FOUND : HTTP_500_INTERNAL_SERVER_ERROR;
+
+	if (details.digital_signature)
+		cert.key_usage[cert.key_usage_len++] = "DigitalSignature";
+	if (details.key_agreement)
+		cert.key_usage[cert.key_usage_len++] = "KeyAgreement";
+	if (details.server_auth)
+		cert.key_usage[cert.key_usage_len++] = "ServerAuthentication";
+	if (details.client_auth)
+		cert.key_usage[cert.key_usage_len++] = "ClientAuthentication";
+
+	memcpy(descr, cert_descr, sizeof(descr));
+	descr[CERT_DESCR_SUBJECT].object.sub_descr = subject_descr;
+	descr[CERT_DESCR_SUBJECT].object.sub_descr_len =
+		cert_dn_fill(&details.subject, &cert.subject, subject_descr);
+	descr[CERT_DESCR_ISSUER].object.sub_descr = issuer_descr;
+	descr[CERT_DESCR_ISSUER].object.sub_descr_len =
+		cert_dn_fill(&details.issuer, &cert.issuer, issuer_descr);
+
+	ret = json_obj_encode(descr, ARRAY_SIZE(descr), &cert, user_data_json_append, user_data);
+	if (ret < 0) {
+		LOG_ERR("Failed to encode HTTPS certificate: %d", ret);
+		return HTTP_500_INTERNAL_SERVER_ERROR;
+	}
+
+	return 0;
+}
+
+/*
+ * DELETE /redfish/v1/Managers/bmc/NetworkProtocol/HTTPS/Certificates/1
+ *
+ * There must always be a certificate, so replace it with a new self-signed
+ * one for the same key, like HPE iLO does.
+ */
+static int cert_delete_handler(struct http_resource_user_data *user_data)
+{
+	int ret;
+
+	ret = https_cert_self_signed();
+	if (ret)
+		return redfish_error(user_data, HTTP_500_INTERNAL_SERVER_ERROR,
+				     "Base.1.8.GeneralError",
+				     "Could not issue a self-signed certificate");
+
+	return 0;
+}
+
+REDFISH_HANDLER_SIZED(https_cert, HTTPS_CERT_URL,
+		      true, /* require auth */
+		      cert_get_handler, NULL, NULL, cert_delete_handler,
+		      USER_DATA_BUFFER_CERT_GET_SIZE, USER_DATA_BUFFER_POST_SIZE);
+
+/* GenerateCSR */
+#define CSR_ALT_NAMES_MAX	8
+
+struct redfish_generate_csr {
+	struct redfish_link certificate_collection;
+	const char *cn;
+	const char *o;
+	const char *ou;
+	const char *l;
+	const char *st;
+	const char *c;
+	const char *email;
+	const char *alt_names[CSR_ALT_NAMES_MAX];
+	size_t alt_names_len;
+	const char *key_pair_algorithm;
+	const char *key_curve_id;
+	int32_t key_bit_length;
+};
+static const struct json_obj_descr generate_csr_descr[] = {
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_generate_csr, "CertificateCollection",
+				    certificate_collection, link_descr),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_generate_csr, "CommonName", cn, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_generate_csr, "Organization", o, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_generate_csr, "OrganizationalUnit", ou,
+				  JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_generate_csr, "City", l, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_generate_csr, "State", st, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_generate_csr, "Country", c, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_generate_csr, "Email", email, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_ARRAY_NAMED(struct redfish_generate_csr, "AlternativeNames", alt_names,
+				   CSR_ALT_NAMES_MAX, alt_names_len, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_generate_csr, "KeyPairAlgorithm",
+				  key_pair_algorithm, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_generate_csr, "KeyCurveId",
+				  key_curve_id, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_generate_csr, "KeyBitLength",
+				  key_bit_length, JSON_TOK_NUMBER),
+};
+
+struct redfish_generate_csr_response {
+	const char *csr_string;
+	struct redfish_link certificate_collection;
+};
+static const struct json_obj_descr generate_csr_response_descr[] = {
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_generate_csr_response, "CSRString",
+				  csr_string, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_generate_csr_response,
+				    "CertificateCollection", certificate_collection, link_descr),
+};
+
+static bool str_in(const char *s, const char *const *list, size_t n)
+{
+	for (size_t i = 0; i < n; i++) {
+		if (!strcasecmp(s, list[i]))
+			return true;
+	}
+	return false;
+}
+
+/* POST /redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR */
+static int generate_csr_post_handler(struct http_resource_user_data *user_data)
+{
+	static const char *const algorithms[] = { "TPM_ALG_ECDSA", "EC", "ECDSA" };
+	static const char *const curves[] = { "TPM_ECC_NIST_P256", "prime256v1", "secp256r1",
+					      "P-256" };
+	static char csr[1536];
+	struct redfish_generate_csr payload;
+	struct redfish_generate_csr_response response = {
+		.csr_string = csr,
+		.certificate_collection = { .odata_id = HTTPS_CERTS_URL },
+	};
+	struct https_cert_csr_params params;
+	const char *err;
+	int ret;
+
+	memset(&payload, 0, sizeof(payload));
+	payload.key_bit_length = -1;
+	ret = json_obj_parse(user_data->data_buffer, user_data->data_len, generate_csr_descr,
+			     ARRAY_SIZE(generate_csr_descr), &payload);
+	if (ret < 0)
+		return redfish_error(user_data, HTTP_400_BAD_REQUEST, "Base.1.8.MalformedJSON",
+				     "The request body is not valid JSON");
+
+	if (!payload.certificate_collection.odata_id ||
+	    strcmp(payload.certificate_collection.odata_id, HTTPS_CERTS_URL))
+		return redfish_error(user_data, HTTP_400_BAD_REQUEST,
+				     "Base.1.8.ActionParameterValueError",
+				     "CertificateCollection must be " HTTPS_CERTS_URL);
+
+	/* Only the existing P-256 key can be used */
+	if ((payload.key_pair_algorithm &&
+	     !str_in(payload.key_pair_algorithm, algorithms, ARRAY_SIZE(algorithms))) ||
+	    (payload.key_curve_id &&
+	     !str_in(payload.key_curve_id, curves, ARRAY_SIZE(curves))) ||
+	    (payload.key_bit_length != -1 && payload.key_bit_length != 256))
+		return redfish_error(user_data, HTTP_400_BAD_REQUEST,
+				     "Base.1.8.ActionParameterValueError",
+				     "Only ECDSA P-256 keys are supported: KeyPairAlgorithm "
+				     "TPM_ALG_ECDSA, KeyCurveId TPM_ECC_NIST_P256, "
+				     "KeyBitLength 256");
+
+	params = (struct https_cert_csr_params) {
+		.cn = payload.cn,
+		.o = payload.o,
+		.ou = payload.ou,
+		.l = payload.l,
+		.st = payload.st,
+		.c = payload.c,
+		.email = payload.email,
+		.alt_names = payload.alt_names,
+		.alt_count = payload.alt_names_len,
+	};
+
+	ret = https_cert_csr_generate(&params, csr, sizeof(csr), &err);
+	if (ret)
+		return redfish_error(user_data, ret == -EINVAL || ret == -E2BIG ?
+				     HTTP_400_BAD_REQUEST : HTTP_500_INTERNAL_SERVER_ERROR,
+				     ret == -EINVAL || ret == -E2BIG ?
+				     "Base.1.8.ActionParameterValueError" : "Base.1.8.GeneralError",
+				     err);
+
+	/* The request isn't needed any more, write the response over it */
+	user_data->data_len = 0;
+	ret = json_obj_encode(generate_csr_response_descr,
+			      ARRAY_SIZE(generate_csr_response_descr),
+			      &response, user_data_json_append, user_data);
+	if (ret < 0) {
+		LOG_ERR("Failed to encode GenerateCSR response: %d", ret);
+		return HTTP_500_INTERNAL_SERVER_ERROR;
+	}
+
+	user_data->respond = true;
+	return 0;
+}
+
+REDFISH_HANDLER_SIZED(generate_csr,
+		      CERT_SERVICE_URL "/Actions/CertificateService.GenerateCSR",
+		      true, /* require auth */
+		      NULL, NULL, generate_csr_post_handler, NULL,
+		      USER_DATA_BUFFER_GET_SIZE, 2048);
+
+/* ReplaceCertificate */
+struct redfish_replace_certificate {
+	const char *certificate_string;
+	const char *certificate_type;
+	struct redfish_link certificate_uri;
+};
+static const struct json_obj_descr replace_certificate_descr[] = {
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_replace_certificate, "CertificateString",
+				  certificate_string, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_replace_certificate, "CertificateType",
+				  certificate_type, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_replace_certificate, "CertificateUri",
+				    certificate_uri, link_descr),
+};
+
+/*
+ * Undo JSON string escapes in place. Only what can appear in PEM is
+ * expected, other escapes are left as they are, which makes the PEM fail
+ * to parse.
+ */
+static void json_unescape_pem(char *s)
+{
+	char *w = s;
+
+	for (; *s; s++) {
+		if (*s == '\\' && s[1]) {
+			s++;
+			switch (*s) {
+			case 'n': *w++ = '\n'; continue;
+			case 'r': *w++ = '\r'; continue;
+			case 't': *w++ = '\t'; continue;
+			case '/': *w++ = '/'; continue;
+			case '\\': *w++ = '\\'; continue;
+			case '"': *w++ = '"'; continue;
+			default: *w++ = '\\'; break;
+			}
+		}
+		*w++ = *s;
+	}
+	*w = '\0';
+}
+
+/* POST /redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate */
+static int replace_certificate_post_handler(struct http_resource_user_data *user_data)
+{
+	struct redfish_replace_certificate payload;
+	const char *err;
+	int ret;
+
+	memset(&payload, 0, sizeof(payload));
+	ret = json_obj_parse(user_data->data_buffer, user_data->data_len,
+			     replace_certificate_descr, ARRAY_SIZE(replace_certificate_descr),
+			     &payload);
+	if (ret < 0)
+		return redfish_error(user_data, HTTP_400_BAD_REQUEST, "Base.1.8.MalformedJSON",
+				     "The request body is not valid JSON");
+
+	if (!payload.certificate_uri.odata_id ||
+	    strcmp(payload.certificate_uri.odata_id, HTTPS_CERT_URL))
+		return redfish_error(user_data, HTTP_400_BAD_REQUEST,
+				     "Base.1.8.ActionParameterValueError",
+				     "CertificateUri must be " HTTPS_CERT_URL);
+
+	if (payload.certificate_type && strcmp(payload.certificate_type, "PEM"))
+		return redfish_error(user_data, HTTP_400_BAD_REQUEST,
+				     "Base.1.8.ActionParameterValueError",
+				     "CertificateType must be PEM");
+
+	if (!payload.certificate_string)
+		return redfish_error(user_data, HTTP_400_BAD_REQUEST,
+				     "Base.1.8.ActionParameterMissing",
+				     "CertificateString is required");
+
+	json_unescape_pem((char *)payload.certificate_string);
+
+	ret = https_cert_install((char *)payload.certificate_string, &err);
+	if (ret)
+		return redfish_error(user_data, ret == -EINVAL || ret == -E2BIG ?
+				     HTTP_400_BAD_REQUEST : HTTP_500_INTERNAL_SERVER_ERROR,
+				     ret == -EINVAL || ret == -E2BIG ?
+				     "Base.1.8.ActionParameterValueError" : "Base.1.8.GeneralError",
+				     err);
+
+	return 0;
+}
+
+REDFISH_HANDLER_SIZED(replace_certificate,
+		      CERT_SERVICE_URL "/Actions/CertificateService.ReplaceCertificate",
+		      true, /* require auth */
+		      NULL, NULL, replace_certificate_post_handler, NULL,
+		      USER_DATA_BUFFER_GET_SIZE, USER_DATA_BUFFER_CERT_POST_SIZE);
+#endif /* CONFIG_APP_HTTPS_PUBLIC_KEY */
 
 /*** /redfish/v1/$metadata ***/
 static const uint8_t redfish_metadata_xml_gz[] = {
