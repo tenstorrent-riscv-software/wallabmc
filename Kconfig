@@ -108,11 +108,13 @@ config APP_CRYPTO_PUBLIC_KEY
 	# Required for websocket
 	select PSA_WANT_ALG_SHA_1 if HTTP_SERVER_WEBSOCKET
 
-# Use optimised routine for X25519 shared secrets. Zephyr 4.5 builds
-# and links the everest library but has no Kconfig option to turn it on.
-# The header is in src/crypto, added to the include path in CMakeLists.txt.
+# TF-PSA-Crypto options that Zephyr has no Kconfig for: mbedTLS thread
+# safety (see src/crypto_threading.c), needed whenever mbedTLS is used,
+# and the optimised routine for X25519 shared secrets, which Zephyr 4.5
+# builds and links but has no option to turn on. The header is in
+# src/crypto, added to the include path in CMakeLists.txt.
 config TF_PSA_CRYPTO_USER_CONFIG_FILE
-	default "tf-psa-crypto-user-config.h" if APP_CRYPTO_PUBLIC_KEY
+	default "tf-psa-crypto-user-config.h" if MBEDTLS
 
 # PSK can only use TLS1.2 (supporting 1.3 seems to require pulling in
 # so much that it is not worthwhile).
