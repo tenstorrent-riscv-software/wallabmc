@@ -181,22 +181,40 @@ static void set_unauth_response(struct http_client_ctx *client,
 
 struct http_resource_user_data {
 	bool started;
+	/* A POST handler put a response body in data_buffer */
+	bool respond;
 	size_t size;
 	size_t data_len;
 	uint8_t *data_buffer;
+	/* Buffer sizes for the resource */
+	size_t get_size;
+	size_t post_size;
 };
 
-#define USER_DATA_HEAP_SIZE		2048
 #define USER_DATA_BUFFER_GET_SIZE	1024
 #define USER_DATA_BUFFER_POST_SIZE	512
 
+#define USER_DATA_HEAP_SIZE		2048
+
 static K_HEAP_DEFINE(heap_data_buffer, USER_DATA_HEAP_SIZE);
 
-static void alloc_user_data(struct http_resource_user_data *user_data, size_t size)
+static bool alloc_user_data(struct http_resource_user_data *user_data, size_t size)
 {
+	/*
+	 * Don't wait, this runs on the HTTP server thread, which is the only
+	 * thread that frees.
+	 */
+	user_data->data_buffer = k_heap_alloc(&heap_data_buffer, size, K_NO_WAIT);
+	if (!user_data->data_buffer) {
+		LOG_ERR("No memory for %zu byte request buffer", size);
+		return false;
+	}
+
 	user_data->started = true;
+	user_data->respond = false;
 	user_data->size = size;
-	user_data->data_buffer = k_heap_alloc(&heap_data_buffer, size, K_FOREVER);
+	user_data->data_len = 0;
+	return true;
 }
 
 static void free_user_data(struct http_resource_user_data *user_data)
@@ -205,6 +223,7 @@ static void free_user_data(struct http_resource_user_data *user_data)
 		return;
 
 	user_data->started = false;
+	user_data->respond = false;
 	user_data->size = 0;
 	user_data->data_len = 0;
 	k_heap_free(&heap_data_buffer, user_data->data_buffer);
@@ -234,6 +253,61 @@ static int user_data_json_append(const char *bytes, size_t len, void *data)
 	return 0;
 }
 
+/* Error response body */
+struct redfish_message {
+	const char *message_id;
+	const char *message;
+};
+static const struct json_obj_descr message_descr[] = {
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_message, "MessageId", message_id, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_message, "Message", message, JSON_TOK_STRING),
+};
+
+struct redfish_error_body {
+	const char *code;
+	const char *message;
+	struct redfish_message extended_info[1];
+	size_t extended_info_len;
+};
+static const struct json_obj_descr error_body_descr[] = {
+	JSON_OBJ_DESCR_PRIM(struct redfish_error_body, code, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM(struct redfish_error_body, message, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_OBJ_ARRAY_NAMED(struct redfish_error_body, "@Message.ExtendedInfo",
+				       extended_info, 1, extended_info_len,
+				       message_descr, ARRAY_SIZE(message_descr)),
+};
+
+struct redfish_error {
+	struct redfish_error_body error;
+};
+static const struct json_obj_descr error_descr[] = {
+	JSON_OBJ_DESCR_OBJECT(struct redfish_error, error, error_body_descr),
+};
+
+/*
+ * Make a POST handler respond with status and a Redfish error body,
+ * replacing the request in user_data. Returns status.
+ */
+static __maybe_unused int redfish_error(struct http_resource_user_data *user_data, int status,
+					const char *message_id, const char *message)
+{
+	const struct redfish_error error = {
+		.error = {
+			.code = message_id,
+			.message = message,
+			.extended_info = { { .message_id = message_id, .message = message } },
+			.extended_info_len = 1,
+		},
+	};
+
+	LOG_WRN("%s", message);
+
+	user_data->data_len = 0;
+	user_data->respond = json_obj_encode(error_descr, ARRAY_SIZE(error_descr), &error,
+					     user_data_json_append, user_data) == 0;
+	return status;
+}
+
 static int redfish_handler(struct http_client_ctx *client,
 			   enum http_transaction_status status,
 			   const struct http_request_ctx *request_ctx,
@@ -248,7 +322,7 @@ static int redfish_handler(struct http_client_ctx *client,
 	int ret;
 
 	if (status == HTTP_SERVER_TRANSACTION_COMPLETE) {
-		if (client->method == HTTP_GET) {
+		if (client->method == HTTP_GET || user_data->respond) {
 			free_user_data(user_data);
 		} else {
 			if (user_data->started) {
@@ -281,8 +355,11 @@ static int redfish_handler(struct http_client_ctx *client,
 	}
 
 	if (client->method == HTTP_PATCH || client->method == HTTP_POST) {
-		if (!user_data->started)
-			alloc_user_data(user_data, USER_DATA_BUFFER_POST_SIZE);
+		if (!user_data->started && !alloc_user_data(user_data, user_data->post_size)) {
+			response_ctx->status = HTTP_503_SERVICE_UNAVAILABLE;
+			response_ctx->final_chunk = true;
+			return 0;
+		}
 
 		/* Accumulate requests into the user_buffer, until the final request. */
 		if (request_ctx->data && request_ctx->data_len > 0) {
@@ -302,11 +379,26 @@ static int redfish_handler(struct http_client_ctx *client,
 			ret = patch_fn(user_data);
 		else /* client->method == HTTP_POST */
 			ret = post_fn(user_data);
-		free_user_data(user_data);
-		if (ret)
-			response_ctx->status = ret;
-		else
-			response_ctx->status = HTTP_204_NO_CONTENT; /* 204 is success */
+
+		if (user_data->respond) {
+			static const struct http_header headers[] = {
+				{ .name = "content-type", .value = "application/json" },
+				{ .name = "cache-control", .value = "no-cache" },
+			};
+
+			/* Freed when the transaction completes */
+			response_ctx->headers = headers;
+			response_ctx->header_count = ARRAY_SIZE(headers);
+			response_ctx->body = user_data->data_buffer;
+			response_ctx->body_len = user_data->data_len;
+			response_ctx->status = ret ? ret : HTTP_200_OK;
+		} else {
+			free_user_data(user_data);
+			if (ret)
+				response_ctx->status = ret;
+			else
+				response_ctx->status = HTTP_204_NO_CONTENT; /* 204 is success */
+		}
 
 	} else if (client->method == HTTP_GET && get_fn) {
 		if (user_data->started) {
@@ -321,7 +413,11 @@ static int redfish_handler(struct http_client_ctx *client,
 			return 0;
 		}
 
-		alloc_user_data(user_data, USER_DATA_BUFFER_GET_SIZE);
+		if (!alloc_user_data(user_data, user_data->get_size)) {
+			response_ctx->status = HTTP_503_SERVICE_UNAVAILABLE;
+			response_ctx->final_chunk = true;
+			return 0;
+		}
 
 		ret = get_fn(user_data);
 		if (ret) {
@@ -341,8 +437,17 @@ static int redfish_handler(struct http_client_ctx *client,
 }
 
 #define REDFISH_HANDLER(name, url, require_auth, get_handler, patch_handler, post_handler) \
+	REDFISH_HANDLER_SIZED(name, url, require_auth, get_handler, patch_handler,	\
+			      post_handler, USER_DATA_BUFFER_GET_SIZE,			\
+			      USER_DATA_BUFFER_POST_SIZE)
+
+#define REDFISH_HANDLER_SIZED(name, url, require_auth, get_handler, patch_handler,	\
+			      post_handler, get_size_, post_size_)			\
 /* Zephyr HTTP API serialises requests by resource so static data can be used here. */	\
-static struct http_resource_user_data name##_user_data;					\
+static struct http_resource_user_data name##_user_data = {				\
+	.get_size = get_size_,								\
+	.post_size = post_size_,							\
+};											\
 static int name##_handler(struct http_client_ctx *client,				\
 			  enum http_transaction_status status,				\
 			  const struct http_request_ctx *request_ctx,			\
