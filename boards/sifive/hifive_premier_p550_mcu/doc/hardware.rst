@@ -49,11 +49,11 @@ Currently implemented in WallaBMC
      - Description
    * - PD4
      - DCDC POWER ON (DC_EN)
-     - ``dcen`` / ``power-gpio-1``
+     - ``dcen``, rail ``dcdc``
      - DC-DC converter enable (main power rails). Active HIGH.
    * - PE3
      - ATX POWER ON REQUEST
-     - ``atxpson`` / ``power-gpio-2``
+     - ``atxpson``, rail ``atx``
      - ATX PSU power-on signal. Active HIGH.
    * - PE13
      - LED_PWM3 (Blue)
@@ -149,10 +149,11 @@ SOM reset control (PD5 output, PD6 input)
      - LOW
      - SOM reset status feedback. Goes low when SOM is in reset. Can be used to confirm reset completed or detect SoC-initiated resets.
 
-**Implementation**: Add ``reset-gpio`` alias in the overlay pointing to a new
-GPIO node for PD5 (active-low). The existing ``power_reset()`` in ``power.c``
-already supports this alias and will pulse it for 1 second. PD6 could
-optionally be used to confirm reset state or detect SoC-initiated resets.
+**Implementation**: Add a ``reset-gpio-1`` alias in the overlay pointing to
+a new GPIO node for PD5 (active-low). ``power_reset()`` in ``power.c``
+pulses it for 1 second, and the sequencer holds it from BMC boot until the
+last rail is up. PD6 could optionally be used to confirm reset state or
+detect SoC-initiated resets.
 
 .. code-block:: dts
 
@@ -167,7 +168,7 @@ optionally be used to confirm reset state or detect SoC-initiated resets.
    };
 
    /* In the overlay aliases: */
-   reset-gpio = &som_reset;
+   reset-gpio-1 = &som_reset;
 
 Power-good monitoring (PE5)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -674,14 +675,18 @@ Power architecture and sequencing
 The MCU controls the board's power-on sequence:
 
 #. MCU is always powered from ATX 5V standby (VDD_5VSB -> VDD18_MCU via SY8113B buck)
-#. On ``power on``:
+#. ``power on`` walks ``power-on-sequence`` of the ``power_sequencer`` node
+   in ``boards/hifive_premier_p550_mcu.overlay``:
 
-   - Assert **DC_EN** (PD4 HIGH) -> enables main DC-DC converters
-     (SQ20056RAC for 5V/3.3V carrier, SY81012VDC for 5V SOM/SYS)
-   - Assert **ATX_PS_ON** (PE3 HIGH) -> tells ATX PSU to turn on main 12V
+   - Rail ``atx``: assert **ATX_PS_ON** (PE3 HIGH) -> tells ATX PSU to turn
+     on main 12V
+   - Rail ``dcdc``: assert **DC_EN** (PD4 HIGH) -> enables main DC-DC
+     converters (SQ20056RAC for 5V/3.3V carrier, SY81012VDC for 5V SOM/SYS)
 
-#. Monitor **DCDC_PWR_OK** (PE5) -> goes HIGH when power rails are stable
-#. On ``power off``: deassert both DC_EN and ATX_PS_ON
+#. **DCDC_PWR_OK** (PE5) goes HIGH when power rails are stable; not read
+   yet (see gaps below)
+#. ``power off`` walks ``power-on-sequence`` in reverse: deassert DC_EN,
+   wait 10 ms (``off-delay-ms`` of ``atx``), then deassert ATX_PS_ON
 #. **Auto power-on jumper** J61 (2-pin) can force power-on at ATX standby
 
 **Original firmware power-on sequence** (from ``hf_power_task`` reverse engineering):
@@ -711,9 +716,11 @@ The MCU controls the board's power-on sequence:
 
 **Current WallaBMC implementation gaps**:
 
-- Does not monitor DCDC_PWR_OK (PE5) to confirm power-on success
-- Does not sequence ATX_PS_ON before DC_EN (both asserted simultaneously)
-- Does not hold SOM in reset during power-on, nor release it after DC good
+- Does not monitor DCDC_PWR_OK (PE5) to confirm power-on success: needs a
+  GPIO node for PE5 listed as ``power-good`` of the ``dcdc`` rail
+- Does not hold SOM in reset during power-on: needs the ``reset-gpio-1``
+  alias on a PD5 node (see SOM reset), which the sequencer then holds from
+  BMC boot until the last rail is up
 - Does not drive front panel LEDs (PD10/PD11) to reflect power state
 - Does not detect power button presses (PA12)
 - Does not detect SoC-initiated resets via PD6 interrupt
@@ -750,8 +757,10 @@ Feature implementation priority
 Recommended order based on impact and complexity:
 
 #. **Fix reset-button alias** - one-line DTS fix, enables config-clear button
-#. **SOM reset** (PD5) - add DTS node + alias, existing ``power_reset()`` handles it
-#. **Power-good monitoring** (PE5) - add GPIO input, confirm power state
+#. **SOM reset** (PD5) - add a DTS node + ``reset-gpio-1`` alias;
+   ``power_reset()`` pulses it and the sequencer holds it through power on
+#. **Power-good monitoring** (PE5) - add a GPIO node, list it as
+   ``power-good`` of the ``dcdc`` rail
 #. **Front panel LEDs** (PD10/PD11) - simple GPIO output, track power state
 #. **Power button** (PA12) - GPIO interrupt, triggers power on/off
 #. **I2C3 + INA226** - 12V rail power monitoring, Redfish Power resource

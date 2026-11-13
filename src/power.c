@@ -25,6 +25,7 @@ LOG_MODULE_REGISTER(wallabmc_power);
 #define GPIO_RESET DT_ALIAS(reset_gpio_1)
 #define GPIO_POWER_LED  DT_ALIAS(power_led)
 
+/* Momentary power button(s) of a CONFIG_APP_HOST_POWER_PULSE board */
 static const struct gpio_dt_spec power_gpios[] = {
 #if DT_NODE_HAS_STATUS_OKAY(GPIO_POWER_1)
 	GPIO_DT_SPEC_GET(GPIO_POWER_1, gpios),
@@ -339,6 +340,10 @@ static int power_press(void)
 	return power_pulse(CONFIG_APP_HOST_POWER_PULSE_MS);
 }
 #else /* !CONFIG_APP_HOST_POWER_PULSE */
+BUILD_ASSERT(ARRAY_SIZE(power_gpios) == 0,
+	     "power-gpio-N is a momentary button (CONFIG_APP_HOST_POWER_PULSE); "
+	     "describe a level-driven rail as a wallabmc,power-rail node");
+
 static int power_led_set(int value)
 {
 	int ret;
@@ -469,14 +474,6 @@ static int power_on(void)
 		return 0;
 	}
 
-	for (i = 0; i < ARRAY_SIZE(power_gpios); i++) {
-		ret = gpio_pin_set_dt(&power_gpios[i], 1);
-		if (ret < 0) {
-			LOG_ERR("Could not assert power GPIO %d", i);
-			return -1;
-		}
-	}
-
 	/* Hold the host in reset while its rails come up */
 	ret = reset_set(1);
 	if (ret < 0)
@@ -509,16 +506,7 @@ static int power_on(void)
 
 static int power_off(void)
 {
-	int i, ret, rc;
-
-	for (i = 0; i < ARRAY_SIZE(power_gpios); i++) {
-		ret = gpio_pin_set_dt(&power_gpios[i], 0);
-		if (ret < 0) {
-			LOG_ERR("Could not deassert power GPIO %d", i);
-			power_off_failed = true;
-			return -1;
-		}
-	}
+	int ret, rc;
 
 	/*
 	 * Not skipped when the host is already off: a failed power off or
