@@ -278,6 +278,11 @@ static int power_on(void)
 {
 	int i, ret;
 
+	if (system_power_state) {
+		LOG_INF("System Power State already: ON");
+		return 0;
+	}
+
 	for (i = 0; i < ARRAY_SIZE(power_gpios); i++) {
 		ret = gpio_pin_set_dt(&power_gpios[i], 1);
 		if (ret < 0) {
@@ -289,6 +294,7 @@ static int power_on(void)
 	/* Don't fail the operation on LED failure */
 	(void)power_led_set(1);
 	system_power_state = true;
+	LOG_INF("System Power State changed to: ON");
 
 	return 0;
 }
@@ -307,6 +313,8 @@ static int power_off(void)
 
 	/* Don't fail the operation on LED failure */
 	(void)power_led_set(0);
+	if (system_power_state)
+		LOG_INF("System Power State changed to: OFF");
 	system_power_state = false;
 
 	return 0;
@@ -379,7 +387,7 @@ out:
 
 int power_set_state(bool on)
 {
-	int ret, state;
+	int ret;
 
 	ret = host_power_lock();
 	if (ret < 0)
@@ -397,15 +405,13 @@ int power_set_state(bool on)
 		return ret;
 	}
 
-	state = host_power_state();
 	if (IS_ENABLED(CONFIG_APP_HOST_POWER_PULSE))
 		/*
 		 * A reading, not a change: a power-good input lags the press,
 		 * and the press may have been skipped.
 		 */
-		LOG_INF("Host power state: %s", power_state_name(state));
-	else
-		LOG_INF("System Power State changed to: %s", state ? "ON" : "OFF");
+		LOG_INF("Host power state: %s",
+			power_state_name(host_power_state()));
 	return 0;
 }
 
