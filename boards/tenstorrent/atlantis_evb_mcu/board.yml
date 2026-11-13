@@ -1,0 +1,6 @@
+board:
+  name: atlantis_evb_mcu
+  full_name: Tenstorrent Atlantis EVB MCU
+  vendor: tenstorrent
+  socs:
+    - name: stm32f746xx
