@@ -26,6 +26,7 @@
 #include <string.h>
 
 #include "config.h"
+#include "http.h"
 #include "power.h"
 #include "time.h"
 #include "sensors.h"
@@ -338,15 +339,6 @@ static int redfish_handler(struct http_client_ctx *client,
 	response_ctx->final_chunk = true;
 	return 0;
 }
-
-#if defined(CONFIG_APP_HTTPS)
-#define ALL_HTTP_RESOURCE_DEFINE(name, url, detail)					\
-HTTP_RESOURCE_DEFINE(name##_http, http_service, url, detail);				\
-HTTP_RESOURCE_DEFINE(name##_https, https_service, url, detail);
-#else
-#define ALL_HTTP_RESOURCE_DEFINE(name, url, detail)					\
-HTTP_RESOURCE_DEFINE(name##_http, http_service, url, detail);
-#endif
 
 #define REDFISH_HANDLER(name, url, require_auth, get_handler, patch_handler, post_handler) \
 /* Zephyr HTTP API serialises requests by resource so static data can be used here. */	\
@@ -1933,9 +1925,5 @@ static struct http_resource_detail_static redfish_metadata_xml_gz_resource_detai
 	.static_data_len = sizeof(redfish_metadata_xml_gz),
 };
 
-HTTP_RESOURCE_DEFINE(redfish_metadata_xml_gz_resource, http_service,
-		"/redfish/v1/$metadata", &redfish_metadata_xml_gz_resource_detail);
-#if defined(CONFIG_APP_HTTPS)
-HTTP_RESOURCE_DEFINE(redfish_metadata_xml_gz_resource_https, https_service,
-		"/redfish/v1/$metadata", &redfish_metadata_xml_gz_resource_detail);
-#endif /* defined(CONFIG_APP_HTTPS) */
+ALL_HTTP_RESOURCE_DEFINE(redfish_metadata_xml_gz_resource, "/redfish/v1/$metadata",
+			 &redfish_metadata_xml_gz_resource_detail);
