@@ -1,3 +1,27 @@
 // Tenstorrent Atlantis SLT MCU
 
 #include "tenstorrent/common/atlantis_wallabmc.dtsi"
+
+/*
+ * Host power rails (doc/hardware.rst, "SoC rails controlled by the
+ * MCU"). The SoC requires only the order of the rails on the way up; the
+ * handshakes follow the last rail and power off is the reverse.
+ */
+/ {
+	power-rails {
+		/* P5V feeds the LPDDR5 PMIC, which needs it while shutting down */
+		p5v: p5v {
+			compatible = "wallabmc,power-rail";
+			enable = <&power_5v_en>;
+			power-good = <&pwr_good_5v>;
+			off-delay-ms = <100>;
+		};
+	};
+
+	power_sequencer: power-sequencer {
+		compatible = "wallabmc,power-sequencer";
+		power-on-sequence = <&p5v &vcore_0v8 &mpm54304 &ddr_vdd &ddr_vdd2l
+				     &ddr_vddq &pcie_vp &pcie_vph
+				     &pwr1_gd &pwr2_gd &otp_pwrrdy>;
+	};
+};

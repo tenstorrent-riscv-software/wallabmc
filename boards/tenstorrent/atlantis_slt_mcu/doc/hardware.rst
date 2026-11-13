@@ -144,10 +144,10 @@ Implemented in WallaBMC
      - P5V in regulation (high)
    * - PC7 / PC6
      - PG_PH1 / PG_PH2
-     - ``pg_ph1`` / ``pg_ph2``, rail ``vcore_0v8`` (step 2) power good /
-       optional power good
-     - VCORE phases in regulation, high. PG_PH1 gates the step, PG_PH2
-       only warns. PG_PH2 sits at the ~4.4 V LDO; PG_PH1 is clamped by
+     - ``pg_ph1``, rail ``vcore_0v8`` (step 2) power good; ``pg_ph2``
+       unused
+     - VCORE phases in regulation, high. PG_PH1 gates the step. PG_PH2
+       sits at the ~4.4 V LDO; PG_PH1 is clamped by
        LED DS2 to about 2 V (see Known issues)
    * - PF10
      - MPM54304_GPIO
@@ -411,7 +411,7 @@ VDD1 > VDD2 > 0.9 V > VDDQ.
      - VCORE_0V8_EN (PE13)
      - U22 + U2 TPS546E25
      - VCORE_0V8 80 A
-     - PG_PH1 (PC7), PG_PH2 (PC6, optional)
+     - PG_PH1 (PC7)
    * - 3
      - MPM54304_EN (PE12)
      - U53 MPM54304
@@ -476,7 +476,7 @@ The rails are the ``wallabmc,power-rail`` nodes in
 ``boards/atlantis_slt_mcu.overlay``; ``power-on-sequence`` in the overlay's
 ``power_sequencer`` node lists them in the table's order; power off walks
 it in reverse. ``power on`` walks the sequence forwards.
-SYS_RSTN is asserted first. Each step waits for its required power-good
+SYS_RSTN is asserted first. Each step waits for its power-good
 inputs to read low (a power good that is already high before its enable
 cannot be trusted), asserts the enable, waits for the inputs to read high
 and then sleeps the step's settle time. PWR_GOOD_5V gates step 1, PG_PH1
@@ -486,14 +486,13 @@ VCORE that never starts stops the sequence instead of letting the IO rails,
 the handshakes and the reset release go ahead with no core supply; the
 TPS546E25 datasheet says PG is actively pulled low while CNTL is low with
 VCC present, so the low reading before the enable is a valid check. PG_PH2
-is ``power-good-optional`` on step 2: it is not checked before the enable
-and a timeout logs ``VCORE_0V8_EN: optional PG_PH2 not good after 1000 ms``
-and continues, because the TPS546E25 datasheet does not say what the
+is not used: the TPS546E25 datasheet does not say what the
 secondary device's PG pin does in a stacked pair (see Known issues). If the
 LED DS2 clamp makes PC7 read low while VCORE is fine, step 2 fails with
 ``VCORE_0V8_EN: PG_PH1 not good after 1000 ms`` and backs out; VCORE is up
 for that second, long enough to measure PC7. The fix is to remove or buffer
-DS2, or to move ``pg_ph1`` to ``power-good-optional`` in
+DS2; until then replace ``power-good`` on ``vcore_0v8`` with a
+``settle-ms`` in
 ``boards/tenstorrent/common/atlantis_wallabmc.dtsi``, which leaves VCORE
 ungated. Steps 6 to 11 have no power-good input. Every wait
 allows 1 s (``power-good-timeout-ms``, polled each millisecond). The settle
@@ -782,14 +781,14 @@ measurement before the DTS can be settled.
   power on; a bad reading therefore fails step 2 with ``VCORE_0V8_EN:
   PG_PH1 not good after 1000 ms`` and backs the rails out. VCORE is up
   for that second, long enough to measure PC7. The fix is to buffer the
-  LED or remove DS2. Until then ``pg_ph1`` can move to
-  ``power-good-optional`` in
+  LED or remove DS2. Until then replace ``power-good`` on
+  ``vcore_0v8`` with a ``settle-ms`` in
   ``boards/tenstorrent/common/atlantis_wallabmc.dtsi``, which
   leaves VCORE ungated.
 - **PG_PH2 in the stacked pair**: the TPS546E25 datasheet does not say
   what the secondary device's PG pin does when two are stacked (over PMBus
   a secondary always reports power good), so ``pg_ph2`` is
-  ``power-good-optional`` until it is measured. If PC6 follows VCORE, move
+  not used. If PC6 is measured to follow VCORE, add
   it to ``power-good`` so both phases gate the step.
 - **SoC held in reset by the USB bridge**: U73 ADBUS4 drives
   the reset OR directly and is DTR#, high unless the host drives it low.
@@ -851,10 +850,10 @@ Bring-up checklist
 #. Measure PG_PH1 at PC7 and PG_PH2 at PC6 with VCORE on. PG_PH1 is
    required: if PC7 stays low, step 2 fails with ``VCORE_0V8_EN: PG_PH1
    not good after 1000 ms`` after holding VCORE up for 1 s, long enough
-   to measure. Fix DS2, or move ``pg_ph1`` to ``power-good-optional`` on
-   the ``vcore_0v8`` step in
+   to measure. Fix DS2, or replace ``power-good`` on ``vcore_0v8``
+   with a ``settle-ms`` in
    ``boards/tenstorrent/common/atlantis_wallabmc.dtsi``, which
-   leaves VCORE ungated. PG_PH2 only warns; move it to ``power-good`` if
+   leaves VCORE ungated. PG_PH2 is not read; add it to ``power-good`` if
    PC6 follows VCORE.
 #. Check MPM54304_GPIO (PF10) reads low before MPM54304_EN and high
    after it. The MPM54304 datasheet says the GPIO pin in PG mode is
