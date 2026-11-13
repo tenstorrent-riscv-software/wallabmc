@@ -1,0 +1,6 @@
+board:
+  name: atlantis_slt_mcu
+  full_name: Tenstorrent Atlantis SLT MCU
+  vendor: tenstorrent
+  socs:
+    - name: stm32f746xx

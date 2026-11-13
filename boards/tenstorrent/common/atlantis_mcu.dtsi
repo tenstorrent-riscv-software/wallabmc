@@ -1,0 +1,434 @@
+/*
+ * SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <st/f7/stm32f746Xg.dtsi>
+#include <st/f7/stm32f746zgtx-pinctrl.dtsi>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+
+/*
+ * STM32F746ZGT6 BMC shared by the Atlantis SLT and EVB boards. Pin names
+ * follow the SLT; the EVB uses
+ * the same pins and only renames some nets (see each board's
+ * doc/hardware.rst). Board I2C bus numbers are not STM32 peripheral
+ * numbers: SLT I2C2 (to the SoC) is STM32 I2C1, I2C5 (PMIC bus) is STM32
+ * I2C4 and I2C6 (TMP117, EEPROM) is STM32 I2C2.
+ */
+
+/ {
+	chosen {
+		zephyr,console = &uart8;
+		zephyr,shell-uart = &uart8;
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+		zephyr,dtcm = &dtcm;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		green_led: led0 {
+			gpios = <&gpiog 15 GPIO_ACTIVE_HIGH>;
+			label = "Green LED";
+		};
+	};
+
+	gpio_keys {
+		compatible = "gpio-keys";
+
+		/* B2, no external pull-up */
+		user_button: button0 {
+			gpios = <&gpiog 8 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			label = "User button";
+			zephyr,code = <INPUT_KEY_0>;
+		};
+
+		/*
+		 * SoC reset request. High (or floating, R589 pull-up) holds the
+		 * SoC in reset by driving SYS_RSTN low through Q1.
+		 */
+		sys_rstn: sys_rstn {
+			gpios = <&gpiog 5 GPIO_ACTIVE_HIGH>;
+			label = "SYS_RSTN_3V3";
+		};
+
+		/*
+		 * Regulator enables in power-on order (see doc/hardware.rst).
+		 * All have pull-downs, so every rail is off until driven.
+		 */
+		vcore_0v8_en: vcore_0v8_en {
+			gpios = <&gpioe 13 GPIO_ACTIVE_HIGH>;
+			label = "VCORE_0V8_EN";
+		};
+		mpm54304_en: mpm54304_en {
+			gpios = <&gpioe 12 GPIO_ACTIVE_HIGH>;
+			label = "MPM54304_EN";
+		};
+		ddr_vdd_en: ddr_vdd_en {
+			gpios = <&gpioe 15 GPIO_ACTIVE_HIGH>;
+			label = "DDR_VDD_EN";
+		};
+		ddr_vdd2l_en: ddr_vdd2l_en {
+			gpios = <&gpiob 14 GPIO_ACTIVE_HIGH>;
+			label = "DDR_VDD2L_EN";
+		};
+		ddr_vddq_en: ddr_vddq_en {
+			gpios = <&gpioe 14 GPIO_ACTIVE_HIGH>;
+			label = "DDR_VDDQ_EN";
+		};
+		pcie_vp_en: pcie_vp_en {
+			gpios = <&gpioe 10 GPIO_ACTIVE_HIGH>;
+			label = "PCIE_VP_EN";
+		};
+		pcie_vph_en: pcie_vph_en {
+			gpios = <&gpioe 11 GPIO_ACTIVE_HIGH>;
+			label = "PCIE_VPH_EN";
+		};
+
+		/* Regulator power-good inputs, open-drain with external pull-ups */
+		pg_ph1: pg_ph1 {
+			gpios = <&gpioc 7 GPIO_ACTIVE_HIGH>;
+			label = "PG_PH1";
+		};
+		pg_ph2: pg_ph2 {
+			gpios = <&gpioc 6 GPIO_ACTIVE_HIGH>;
+			label = "PG_PH2";
+		};
+		pwr_good_lpddr5: pwr_good_lpddr5 {
+			gpios = <&gpiog 7 GPIO_ACTIVE_HIGH>;
+			label = "PWR_GOOD_LPDDR5";
+		};
+		pwr_good_0v9: pwr_good_0v9 {
+			gpios = <&gpioa 10 GPIO_ACTIVE_HIGH>;
+			label = "PWR_GOOD_0V9";
+		};
+
+		/*
+		 * Handshakes to the SoC through 15K/18K dividers (push-pull
+		 * only). Must be low while VDD/VDDIO ramp and asserted only once
+		 * they are good.
+		 */
+		pwr1_gd_out: pwr1_gd {
+			gpios = <&gpiog 1 GPIO_ACTIVE_HIGH>;
+			label = "PWR1_GD_3V3";
+		};
+		pwr2_gd_out: pwr2_gd {
+			gpios = <&gpiog 2 GPIO_ACTIVE_HIGH>;
+			label = "PWR2_GD_3V3";
+		};
+		otp_pwrrdy_out: otp_pwrrdy {
+			gpios = <&gpiof 2 GPIO_ACTIVE_HIGH>;
+			label = "OTP_PWRRDY_3V3";
+		};
+
+		/*
+		 * From the SoC through level shifters, undriven until DVDD_1V8
+		 * enables them. GPIO_DATA[n] lines are auto-direction with no
+		 * documented owner; treat them as inputs.
+		 */
+		tj_max: tj_max {
+			gpios = <&gpiog 0 GPIO_ACTIVE_HIGH>;
+			label = "TJ_MAX_3V3";
+		};
+		soc_gpio2: soc_gpio2 {
+			gpios = <&gpioa 3 GPIO_ACTIVE_HIGH>;
+			label = "GPIO2_3V3";
+		};
+		soc_gpio8: soc_gpio8 {
+			gpios = <&gpioa 4 GPIO_ACTIVE_HIGH>;
+			label = "GPIO8_3V3";
+		};
+		soc_gpio11: soc_gpio11 {
+			gpios = <&gpiod 1 GPIO_ACTIVE_HIGH>;
+			label = "GPIO11_3V3";
+		};
+		soc_gpio12: soc_gpio12 {
+			gpios = <&gpiod 0 GPIO_ACTIVE_HIGH>;
+			label = "GPIO12_3V3";
+		};
+
+		/*
+		 * SoC UART0/UART1 source select, SN74CB3Q3253 U82/U83 (S1:S0):
+		 * 00 FT4232 USB, 01 MCU USART2/USART3, 10 headers or test
+		 * points, 11 none.
+		 */
+		sys_uart_sel0: sys_uart_sel0 {
+			gpios = <&gpiod 15 GPIO_ACTIVE_HIGH>;
+			label = "SYS_UART_SEL0";
+		};
+		sys_uart_sel1: sys_uart_sel1 {
+			gpios = <&gpiod 14 GPIO_ACTIVE_HIGH>;
+			label = "SYS_UART_SEL1";
+		};
+
+		/* SoC JTAG source selects, same encoding (01 = MCU) */
+		sys_jtag0_sel0: sys_jtag0_sel0 {
+			gpios = <&gpioa 5 GPIO_ACTIVE_HIGH>;
+			label = "SYS_JTAG0_SEL0";
+		};
+		sys_jtag0_sel1: sys_jtag0_sel1 {
+			gpios = <&gpioa 6 GPIO_ACTIVE_HIGH>;
+			label = "SYS_JTAG0_SEL1";
+		};
+		sys_jtag1_sel0: sys_jtag1_sel0 {
+			gpios = <&gpioa 11 GPIO_ACTIVE_HIGH>;
+			label = "SYS_JTAG1_SEL0";
+		};
+		sys_jtag1_sel1: sys_jtag1_sel1 {
+			gpios = <&gpioa 12 GPIO_ACTIVE_HIGH>;
+			label = "SYS_JTAG1_SEL1";
+		};
+
+		/*
+		 * Boot flash mux TS3A27518E U21: EN high isolates the flash,
+		 * EN low with IN1=IN2=0 gives it to the SoC, IN1=IN2=1 to the MCU
+		 * QUADSPI. IN1 and IN2 must always be driven to the same level.
+		 */
+		qspi_mux_en: qspi_mux_en {
+			gpios = <&gpioe 5 GPIO_ACTIVE_LOW>;
+			label = "QSPI_MUX_EN";
+		};
+		qspi_mux_in1: qspi_mux_in1 {
+			gpios = <&gpioe 6 GPIO_ACTIVE_HIGH>;
+			label = "QSPI_MUX_IN1";
+		};
+		qspi_mux_in2: qspi_mux_in2 {
+			gpios = <&gpioe 7 GPIO_ACTIVE_HIGH>;
+			label = "QSPI_MUX_IN2";
+		};
+
+		/* Slot S2 mux TS3A27518E U20, same encoding (SoC SDIO1 or MCU SDMMC1) */
+		sdio_mux_en: sdio_mux_en {
+			gpios = <&gpioe 8 GPIO_ACTIVE_LOW>;
+			label = "SDIO_MUX_EN";
+		};
+		sdio_mux_in1: sdio_mux_in1 {
+			gpios = <&gpiog 3 GPIO_ACTIVE_HIGH>;
+			label = "SDIO_MUX_IN1";
+		};
+		sdio_mux_in2: sdio_mux_in2 {
+			gpios = <&gpiog 4 GPIO_ACTIVE_HIGH>;
+			label = "SDIO_MUX_IN2";
+		};
+		sdio0_det: sdio0_det {
+			gpios = <&gpioa 8 GPIO_ACTIVE_LOW>;
+			label = "SDIO0_DET";
+		};
+		sdio1_det: sdio1_det {
+			gpios = <&gpioa 9 GPIO_ACTIVE_LOW>;
+			label = "SDIO1_DET";
+		};
+
+		/* Board ID straps: 00 on the SLT, 11 on the EVB */
+		stm32_id0: stm32_id0 {
+			gpios = <&gpiod 10 GPIO_ACTIVE_HIGH>;
+			label = "STM32_ID0";
+		};
+		stm32_id1: stm32_id1 {
+			gpios = <&gpiod 11 GPIO_ACTIVE_HIGH>;
+			label = "STM32_ID1";
+		};
+
+		/* MPM54304 GPIO: open-drain power good with the -0001 MTP, no board pull-up */
+		mpm54304_gpio: mpm54304_gpio {
+			gpios = <&gpiof 10 (GPIO_ACTIVE_HIGH | GPIO_PULL_UP)>;
+			label = "MPM54304_GPIO";
+		};
+
+		/* Spare lines from the SoC-side FT4232 channel A */
+		ft4232_gpio2: ft4232_gpio2 {
+			gpios = <&gpiof 3 GPIO_ACTIVE_HIGH>;
+			label = "FT4232_GPIO2";
+		};
+		ft4232_gpio3: ft4232_gpio3 {
+			gpios = <&gpiof 4 GPIO_ACTIVE_HIGH>;
+			label = "FT4232_GPIO3";
+		};
+
+		/*
+		 * MCU-side FT4232 U42 ADBUS5 (SLT R815, EVB R849).
+		 * Purpose undefined; keep it an input so it cannot fight the
+		 * bridge or back-feed it when J39 is unplugged.
+		 */
+		ft232_gpio: ft232_gpio {
+			gpios = <&gpioc 0 GPIO_ACTIVE_HIGH>;
+			label = "FT232_GPIO";
+		};
+	};
+
+	aliases {
+		led0 = &green_led;
+		sw0 = &user_button;
+	};
+};
+
+/*
+ * Y13 (32.768 kHz LSE) is fitted but unverified. The clock driver waits
+ * forever for a crystal that does not start, so the RTC uses LSI until
+ * bring-up confirms Y13.
+ */
+&clk_lsi {
+	status = "okay";
+};
+
+&clk_hse {
+	clock-frequency = <DT_FREQ_M(8)>;
+	status = "okay";
+};
+
+&pll {
+	div-m = <4>;
+	mul-n = <216>;
+	div-p = <2>;
+	div-q = <9>;
+	clocks = <&clk_hse>;
+	status = "okay";
+};
+
+&rcc {
+	clocks = <&pll>;
+	clock-frequency = <DT_FREQ_M(216)>;
+	ahb-prescaler = <1>;
+	apb1-prescaler = <4>;
+	apb2-prescaler = <2>;
+};
+
+/* MCU console: FT4232 U42 channel C and a header (SLT J70, EVB J86) */
+&uart8 {
+	pinctrl-0 = <&uart8_tx_pe1 &uart8_rx_pe0>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+};
+
+/* SoC UART0 via mux U82 */
+&usart2 {
+	pinctrl-0 = <&usart2_tx_pd5 &usart2_rx_pd6>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+};
+
+/* SoC UART1 via mux U83 */
+&usart3 {
+	pinctrl-0 = <&usart3_tx_pd8 &usart3_rx_pd9>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+};
+
+&rtc {
+	clocks = <&rcc STM32_CLOCK(APB1, 28)>,
+		 <&rcc STM32_SRC_LSI RTC_SEL(2)>;
+	status = "okay";
+};
+
+&rng {
+	status = "okay";
+};
+
+/* Internal channels only (die temperature, VREF, VBAT) */
+&adc123_common {
+	st,adc-prescaler = <4>;
+	status = "okay";
+};
+
+&adc1 {
+	status = "okay";
+};
+
+/* SLT I2C6 / EVB MCU_M, 4.7K pull-ups */
+&i2c2 {
+	pinctrl-0 = <&i2c2_scl_pf1 &i2c2_sda_pf0>;
+	pinctrl-names = "default";
+	clock-frequency = <I2C_BITRATE_FAST>;
+	status = "okay";
+
+	tmp117: tmp117@49 {
+		compatible = "ti,tmp11x";
+		reg = <0x49>;
+		alert-gpios = <&gpiod 3 GPIO_ACTIVE_LOW>;
+	};
+
+	/* M24M01 1 Mbit, E1 = E2 = 1; the upper half answers at 0x57 */
+	eeprom0: eeprom@56 {
+		compatible = "atmel,at24";
+		reg = <0x56>;
+		size = <DT_SIZE_K(128)>;
+		pagesize = <256>;
+		address-width = <16>;
+		timeout = <5>;
+	};
+};
+
+/*
+ * Level-shifted link to the SoC (SLT: I2C2 through U67, EVB: I2C0 through
+ * U105), 4.7K pull-ups both sides. Protocol and master undefined.
+ */
+&i2c1 {
+	pinctrl-0 = <&i2c1_scl_pb8 &i2c1_sda_pb7>;
+	pinctrl-names = "default";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+	status = "okay";
+};
+
+/*
+ * PMIC bus. SLT: board I2C5 when J67/J68 are jumpered 1-2, pull-ups
+ * only on the MCU side (R204/R205). EVB: MCU_P, reaches the bus only once
+ * R931/R933 are fitted and R930/R932 removed.
+ */
+&i2c4 {
+	pinctrl-0 = <&i2c4_scl_pd12 &i2c4_sda_pd13>;
+	pinctrl-names = "default";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+	status = "disabled";
+};
+
+/* SoC boot flash MX25L12833F through mux U21 */
+&quadspi {
+	pinctrl-0 = <&quadspi_clk_pb2 &quadspi_bk1_ncs_pb6
+		     &quadspi_bk1_io0_pf8 &quadspi_bk1_io1_pf9
+		     &quadspi_bk1_io2_pf7 &quadspi_bk1_io3_pf6>;
+	pinctrl-names = "default";
+	status = "disabled";
+};
+
+/* SD slot S2 through mux U20 */
+&sdmmc1 {
+	pinctrl-0 = <&sdmmc1_d0_pc8 &sdmmc1_d1_pc9 &sdmmc1_d2_pc10
+		     &sdmmc1_d3_pc11 &sdmmc1_ck_pc12 &sdmmc1_cmd_pd2>;
+	pinctrl-names = "default";
+	status = "disabled";
+};
+
+/* DP83826E U25 in MII mode; RX_ER, CRS and COL are not wired */
+&mac {
+	status = "okay";
+	pinctrl-0 = <&eth_txd0_pb12 &eth_txd1_pb13 &eth_txd2_pc2 &eth_txd3_pe2
+		     &eth_tx_en_pb11 &eth_tx_clk_pc3
+		     &eth_rxd0_pc4 &eth_rxd1_pc5 &eth_rxd2_pb0 &eth_rxd3_pb1
+		     &eth_rx_dv_pa7 &eth_rx_clk_pa1>;
+	pinctrl-names = "default";
+	phy-connection-type = "mii";
+	phy-handle = <&eth_phy>;
+};
+
+&mdio {
+	status = "okay";
+	pinctrl-0 = <&eth_mdio_pa2 &eth_mdc_pc1>;
+	pinctrl-names = "default";
+
+	/*
+	 * No address straps are fitted; the DP83826E datasheet (SNLS647I)
+	 * default is PHY_ADD0 = 1. Older revisions say 0: verify with an
+	 * MDIO ID read at bring-up.
+	 */
+	eth_phy: ethernet-phy@1 {
+		compatible = "ethernet-phy";
+		reg = <0x01>;
+		reset-gpios = <&gpioe 3 GPIO_ACTIVE_LOW>;
+		reset-assert-duration-us = <100>;
+		reset-deassertion-timeout-ms = <5>;
+	};
+};

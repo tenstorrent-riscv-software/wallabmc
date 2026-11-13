@@ -1,0 +1,24 @@
+/*
+ * SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+#include "../common/atlantis_mcu.dtsi"
+
+/ {
+	model = "Tenstorrent Atlantis SLT MCU";
+	compatible = "tenstorrent,atlantis-slt-mcu";
+
+	gpio_keys {
+		/* P5V regulator U57, the first rail of the power-on order */
+		power_5v_en: power_5v_en {
+			gpios = <&gpioe 9 GPIO_ACTIVE_HIGH>;
+			label = "POWER_5V_EN";
+		};
+		pwr_good_5v: pwr_good_5v {
+			gpios = <&gpiog 6 GPIO_ACTIVE_HIGH>;
+			label = "PWR_GOOD_5V";
+		};
+	};
+};
