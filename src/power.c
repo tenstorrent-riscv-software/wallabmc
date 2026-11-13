@@ -144,6 +144,28 @@ static const char *power_state_name(int state)
 	return state ? "on" : "off";
 }
 
+static int reset_set(int value)
+{
+	int ret;
+
+	/* A board without a reset line has nothing to drive */
+	if (!DT_NODE_HAS_STATUS_OKAY(GPIO_RESET))
+		return 0;
+
+	/* Still reachable after reset_init() failed: main() carries on */
+	if (!gpio_is_ready_dt(&gpio_reset)) {
+		LOG_ERR("Reset GPIO not ready");
+		return -ENODEV;
+	}
+
+	ret = gpio_pin_set_dt(&gpio_reset, value);
+	if (ret < 0)
+		LOG_ERR("Could not %s reset GPIO: %d",
+			value ? "assert" : "deassert", ret);
+
+	return ret;
+}
+
 #ifdef CONFIG_APP_HOST_POWER_PULSE
 /* Drive every power GPIO to val; try them all so one failure cannot leave another asserted */
 static int power_button_set(int val)
@@ -236,6 +258,22 @@ static int power_press(void)
 	return power_pulse(CONFIG_APP_HOST_POWER_PULSE_MS);
 }
 #else /* !CONFIG_APP_HOST_POWER_PULSE */
+static int power_led_set(int value)
+{
+	int ret;
+
+	if (!DT_NODE_HAS_STATUS_OKAY(GPIO_POWER_LED) ||
+	    !gpio_is_ready_dt(&power_led_gpio))
+		return 0;
+
+	ret = gpio_pin_set_dt(&power_led_gpio, value);
+	if (ret < 0)
+		LOG_ERR("Could not %s power LED",
+			value ? "assert" : "deassert");
+
+	return ret;
+}
+
 static int power_on(void)
 {
 	int i, ret;
@@ -248,13 +286,8 @@ static int power_on(void)
 		}
 	}
 
-	if (DT_NODE_HAS_STATUS_OKAY(GPIO_POWER_LED) &&
-	    gpio_is_ready_dt(&power_led_gpio)) {
-		/* Don't fail the operation on LED failure */
-		if (gpio_pin_set_dt(&power_led_gpio, 1) < 0)
-			LOG_ERR("Could not assert power LED");
-	}
-
+	/* Don't fail the operation on LED failure */
+	(void)power_led_set(1);
 	system_power_state = true;
 
 	return 0;
@@ -272,13 +305,8 @@ static int power_off(void)
 		}
 	}
 
-	if (DT_NODE_HAS_STATUS_OKAY(GPIO_POWER_LED) &&
-	    gpio_is_ready_dt(&power_led_gpio)) {
-		/* Don't fail the operation on LED failure */
-		if (gpio_pin_set_dt(&power_led_gpio, 0) < 0)
-			LOG_ERR("Could not deassert power LED");
-	}
-
+	/* Don't fail the operation on LED failure */
+	(void)power_led_set(0);
 	system_power_state = false;
 
 	return 0;
@@ -635,15 +663,9 @@ int power_reset(void)
 	if (state < 0)
 		LOG_WRN("Host power state unknown; pulsing reset anyway");
 
-	if (DT_NODE_HAS_STATUS_OKAY(GPIO_RESET) &&
-	    gpio_is_ready_dt(&gpio_reset)) {
-		ret = gpio_pin_set_dt(&gpio_reset, 1);
-		if (ret < 0) {
-			LOG_INF("Could not assert RESET GPIO\n");
-			ret = -1;
-			goto out;
-		}
-	}
+	ret = reset_set(1);
+	if (ret < 0)
+		goto out;
 
 	if (DT_NODE_HAS_STATUS_OKAY(GPIO_POWER_LED) &&
 	    gpio_is_ready_dt(&power_led_gpio)) {
@@ -657,17 +679,7 @@ int power_reset(void)
 		k_msleep(1000);
 	}
 
-	if (DT_NODE_HAS_STATUS_OKAY(GPIO_RESET) &&
-	    gpio_is_ready_dt(&gpio_reset)) {
-		ret = gpio_pin_set_dt(&gpio_reset, 0);
-		if (ret < 0) {
-			LOG_INF("Could not deassert RESET GPIO\n");
-			ret = -1;
-			goto out;
-		}
-	}
-
-	ret = 0;
+	ret = reset_set(0);
 out:
 	k_mutex_unlock(&host_power_mutex);
 	return ret;

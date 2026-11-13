@@ -15,9 +15,9 @@ int power_auto_poweron(void);
  * is 200 ms, a force-off 6 s, a power cycle up to ~8 s) and returns
  * -EBUSY without touching the host when another operation is in
  * progress: tell the operator to retry rather than queue. Other
- * failures return -1. power_reset() returns -ENOTSUP when the board has
- * power GPIOs but no reset line so callers can fall back to
- * power_cycle().
+ * failures return -1 or a negative errno. power_reset() returns
+ * -ENOTSUP when the board has power GPIOs but no reset line so callers
+ * can fall back to power_cycle().
  */
 int power_set_state(bool on);
 int power_cycle(void);
