@@ -143,6 +143,28 @@ config MBEDTLS_SSL_MAX_CONTENT_LEN
 	depends on APP_CRYPTO
 	default 4096
 
+config APP_HTTP
+	bool "Serve web and redfish over plain HTTP" if APP_HTTPS
+	default !APP_HTTPS
+	depends on REDFISH || APP_WEB
+	help
+	  Serve the web UI, Redfish and websocket consoles over plain HTTP
+	  on port 80. Credentials (HTTP Basic auth, websocket auth) are sent
+	  in the clear over this port.
+
+	  If disabled, port 80 still accepts connections but redirects
+	  requests for the web UI and Redfish to the same URL over HTTPS.
+	  Websocket consoles aren't available over plain HTTP.
+
+	  Can only be disabled if APP_HTTPS is enabled. Defaults to disabled
+	  if APP_HTTPS is enabled, otherwise it's always enabled.
+
+# Room for the captured Authorization, X-Auth-Code and Host headers at
+# HTTP_SERVER_MAX_HEADER_LEN.
+config HTTP_SERVER_CAPTURE_HEADER_BUFFER_SIZE
+	int
+	default 192
+
 config APP_HTTPS
 	bool "HTTPS support for web and redfish"
 	default y
@@ -228,6 +250,13 @@ config HTTP_SERVER_NUM_SERVICES
 config HTTP_SERVER_MAX_CLIENTS
 	int
 	default 8 if APP_WEB
+
+# The web UI polls Redfish every 10 s. With the 10 s Zephyr default the
+# server drops the idle connection just before each poll, so every poll
+# needs a new connection and TLS handshake.
+config HTTP_SERVER_CLIENT_INACTIVITY_TIMEOUT
+	int
+	default 30 if APP_WEB
 
 config APP_WEB
 	bool "Web server"
@@ -410,8 +439,9 @@ config APP_HOST_POWER_FORCE_OFF_MS
 	  The thread that asked for the force-off sleeps through the
 	  press; for Redfish that is the HTTP server thread. Keep this
 	  plus the 2 s PowerCycle gap below
-	  HTTP_SERVER_CLIENT_INACTIVITY_TIMEOUT (default 10 s) or other
-	  HTTP clients are dropped while the button is held.
+	  HTTP_SERVER_CLIENT_INACTIVITY_TIMEOUT (30 s with APP_WEB,
+	  otherwise 10 s) or other HTTP clients are dropped while the
+	  button is held.
 
 config APP_WIFI
 	bool "Connect to Wi-Fi at boot from BMC config"

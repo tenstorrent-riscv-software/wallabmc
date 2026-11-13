@@ -16,6 +16,7 @@
 #include <zephyr/shell/shell_websocket.h>
 #endif
 #include <stdio.h>
+#include <string.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(wallabmc_http, LOG_LEVEL_INF);
@@ -23,13 +24,115 @@ LOG_MODULE_REGISTER(wallabmc_http, LOG_LEVEL_INF);
 #include "http.h"
 #include "config.h"
 
+BUILD_ASSERT(IS_ENABLED(CONFIG_APP_HTTP) || IS_ENABLED(CONFIG_APP_HTTPS),
+	     "CONFIG_APP_HTTP=n requires CONFIG_APP_HTTPS");
+
 static uint16_t http_service_port = 80;
 HTTP_SERVICE_DEFINE(http_service, NULL, &http_service_port,
 		    3, 10, NULL, NULL, NULL);
 
+#if defined(CONFIG_APP_HTTP)
 #if defined(CONFIG_SHELL_BACKEND_WEBSOCKET)
 DEFINE_WEBSOCKET_SERVICE(http_service);
 #endif
+#else /* defined(CONFIG_APP_HTTP) */
+/*
+ * Plain HTTP doesn't serve anything, resources defined with
+ * ALL_HTTP_RESOURCE_DEFINE() redirect to the same URL over HTTPS. The Host
+ * header is used so the redirect keeps the name the client used for the BMC.
+ */
+HTTP_SERVER_REGISTER_HEADER_CAPTURE(capture_host, "host");
+
+static int https_redirect_location(struct http_client_ctx *client,
+				   const struct http_request_ctx *request_ctx,
+				   char *buf, size_t len)
+{
+	const char *host = NULL;
+	size_t host_len;
+	const char *p;
+	int ret;
+
+	for (size_t i = 0; i < request_ctx->header_count; i++) {
+		if (!strcmp(request_ctx->headers[i].name, "host")) {
+			host = request_ctx->headers[i].value;
+			break;
+		}
+	}
+
+	if (!host || !host[0])
+		return -EINVAL;
+
+	/* Drop any port, but not the colons in an IPv6 literal ("[::1]:80") */
+	host_len = strlen(host);
+	p = strrchr(host, ':');
+	if (p && !strchr(p, ']'))
+		host_len = p - host;
+
+	ret = snprintf(buf, len, "https://%.*s%s", (int)host_len, host,
+		       (const char *)client->url_buffer);
+	if (ret < 0 || (size_t)ret >= len)
+		return -ENOMEM;
+
+	return 0;
+}
+
+static int https_redirect_cb(struct http_client_ctx *client,
+			     enum http_transaction_status status,
+			     const struct http_request_ctx *request_ctx,
+			     struct http_response_ctx *response_ctx,
+			     void *user_data)
+{
+	/*
+	 * The server serialises requests by resource detail, which is shared
+	 * by all the redirect resources, so static data can be used here.
+	 */
+	static char location[sizeof("https://") + CONFIG_HTTP_SERVER_MAX_HEADER_LEN +
+			     CONFIG_HTTP_SERVER_MAX_URL_LENGTH];
+	static struct http_header location_header = {
+		.name = "Location",
+		.value = location,
+	};
+	static bool responded;
+
+	if (status == HTTP_SERVER_TRANSACTION_ABORTED ||
+	    status == HTTP_SERVER_TRANSACTION_COMPLETE) {
+		responded = false;
+		return 0;
+	}
+
+	/*
+	 * Captured headers are only passed in the first callback, so respond
+	 * immediately and ignore any request body that follows.
+	 */
+	if (responded)
+		return 0;
+	responded = true;
+
+	if (https_redirect_location(client, request_ctx, location, sizeof(location))) {
+		response_ctx->status = HTTP_400_BAD_REQUEST;
+	} else {
+		/* 308 so clients repeat non-GET methods and bodies */
+		response_ctx->status = HTTP_308_PERMANENT_REDIRECT;
+		response_ctx->headers = &location_header;
+		response_ctx->header_count = 1;
+	}
+	response_ctx->final_chunk = true;
+
+	return 0;
+}
+
+struct http_resource_detail_dynamic https_redirect_detail = {
+	.common = {
+		.type = HTTP_RESOURCE_TYPE_DYNAMIC,
+		/* Not HEAD, the server answers that itself without the callback */
+		.bitmask_of_supported_http_methods = BIT(HTTP_GET) | BIT(HTTP_POST) |
+						     BIT(HTTP_PUT) | BIT(HTTP_PATCH) |
+						     BIT(HTTP_DELETE),
+		.content_type = "text/plain",
+	},
+	.cb = https_redirect_cb,
+};
+#endif /* defined(CONFIG_APP_HTTP) */
 
 #if defined(CONFIG_APP_HTTPS)
 
@@ -171,8 +274,8 @@ int ws_validate_auth(int ws_socket, struct http_request_ctx *request_ctx, void *
 	return 0;
 }
 
+#if defined(CONFIG_APP_HTTP)
 static int (*shell_http_ws_cb)(int ws_socket, struct http_request_ctx *request_ctx, void *user_data);
-static int (*shell_https_ws_cb)(int ws_socket, struct http_request_ctx *request_ctx, void *user_data);
 
 int shell_http_ws_auth_cb(int ws_socket, struct http_request_ctx *request_ctx, void *user_data)
 {
@@ -182,6 +285,9 @@ int shell_http_ws_auth_cb(int ws_socket, struct http_request_ctx *request_ctx, v
 
 	return shell_http_ws_cb(ws_socket, request_ctx, user_data);
 }
+#endif
+
+static int (*shell_https_ws_cb)(int ws_socket, struct http_request_ctx *request_ctx, void *user_data);
 
 int shell_https_ws_auth_cb(int ws_socket, struct http_request_ctx *request_ctx, void *user_data)
 {
@@ -201,11 +307,13 @@ int app_http_server_init(void)
 		return err;
 
 #if defined(CONFIG_SHELL_BACKEND_WEBSOCKET)
+#if defined(CONFIG_APP_HTTP)
 	shell_http_ws_cb = GET_WS_DETAIL_NAME(http_service).cb;
 	GET_WS_DETAIL_NAME(http_service).cb = shell_http_ws_auth_cb;
 	err = shell_websocket_enable(&GET_WS_SHELL_NAME(http_service));
 	if (err)
 		return err;
+#endif
 #if defined(CONFIG_APP_HTTPS)
 	shell_https_ws_cb = GET_WS_DETAIL_NAME(https_service).cb;
 	GET_WS_DETAIL_NAME(https_service).cb = shell_https_ws_auth_cb;

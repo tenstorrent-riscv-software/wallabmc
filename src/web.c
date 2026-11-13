@@ -14,6 +14,7 @@
 #include <zephyr/data/json.h>
 #include <stdio.h>
 
+#include "http.h"
 #include "power.h"
 
 #include <zephyr/logging/log.h>
@@ -62,17 +63,9 @@ static struct http_resource_detail_static favicon_png_resource_detail = {
 	.static_data_len = sizeof(favicon_png),
 };
 
-HTTP_RESOURCE_DEFINE(index_html_gz_resource, http_service, "/",
-		     &index_html_gz_resource_detail);
-HTTP_RESOURCE_DEFINE(logo_png_resource, http_service, "/logo.png",
-		     &logo_png_resource_detail);
-HTTP_RESOURCE_DEFINE(favicon_png_resource, http_service, "/favicon.png",
-		     &favicon_png_resource_detail);
-#if defined(CONFIG_APP_HTTPS)
-HTTP_RESOURCE_DEFINE(index_html_gz_resource_https, https_service, "/",
-		     &index_html_gz_resource_detail);
-HTTP_RESOURCE_DEFINE(logo_png_resource_https, https_service, "/logo.png",
-		     &logo_png_resource_detail);
-HTTP_RESOURCE_DEFINE(favicon_png_resource_https, https_service, "/favicon.png",
-		     &favicon_png_resource_detail);
-#endif /* defined(CONFIG_APP_HTTPS) */
+ALL_HTTP_RESOURCE_DEFINE(index_html_gz_resource, "/",
+			 &index_html_gz_resource_detail);
+ALL_HTTP_RESOURCE_DEFINE(logo_png_resource, "/logo.png",
+			 &logo_png_resource_detail);
+ALL_HTTP_RESOURCE_DEFINE(favicon_png_resource, "/favicon.png",
+			 &favicon_png_resource_detail);
