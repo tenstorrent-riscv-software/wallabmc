@@ -1,0 +1,65 @@
+# SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  Host power rail driven by the BMC: an enable GPIO and the power-good
+  inputs that confirm it. A wallabmc,power-sequencer node lists the
+  rails in the order they are brought up; power off is the reverse.
+
+  Example:
+
+    p5v: p5v {
+        compatible = "wallabmc,power-rail";
+        enable = <&power_5v_en>;
+        power-good = <&pwr_good_5v>;
+        off-delay-ms = <100>;
+    };
+    vcore: vcore {
+        compatible = "wallabmc,power-rail";
+        enable = <&vcore_0v8_en>;
+        power-good = <&pg_ph1>;
+    };
+
+compatible: "wallabmc,power-rail"
+
+include: base.yaml
+
+properties:
+  enable:
+    type: phandle
+    required: true
+    description: |
+      Node with a gpios property (for example a gpio-leds child) whose
+      GPIO is driven active to bring the rail up and inactive to take it
+      down.
+
+  power-good:
+    type: phandles
+    description: |
+      Nodes with a gpios property that must all read inactive before
+      the enable is asserted and active afterwards. They are polled
+      every millisecond for up to power-good-timeout-ms; on timeout the
+      power on fails and the rails are taken down again.
+
+  power-good-timeout-ms:
+    type: int
+    default: 1000
+    description: Time allowed for the power-good inputs to change level.
+
+  settle-ms:
+    type: int
+    default: 0
+    description: |
+      Delay after the rail is up (power-good inputs active, or the
+      enable asserted when there are none) before the next rail or,
+      after the last rail, before the host reset is released.
+
+  off-delay-ms:
+    type: int
+    default: 0
+    description: |
+      Delay on power off (and on the back-out after a failed power on),
+      which walk the reverse of power-on-sequence, between taking down
+      the rails listed after this one and driving this rail's enable
+      inactive. For a rail the regulators taken down earlier need while
+      they shut down.
