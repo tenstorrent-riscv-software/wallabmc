@@ -145,7 +145,6 @@ int ws_validate_auth(int ws_socket, struct http_request_ctx *request_ctx, void *
 				&message_type, &remaining, timeout_ms);
 	if (rc <= 0) {
 		LOG_WRN("No websocket auth message (err=%d)", rc);
-		websocket_disconnect(ws_socket);
 		return -EIO;
 	}
 
@@ -153,7 +152,6 @@ int ws_validate_auth(int ws_socket, struct http_request_ctx *request_ctx, void *
 
 	if (memcmp(rx_buf, auth_prefix, sizeof(auth_prefix) - 1)) {
 		LOG_WRN("No websocket auth message (%s)", rx_buf);
-		websocket_disconnect(ws_socket);
 		return -EINVAL;
 	}
 
@@ -164,7 +162,6 @@ int ws_validate_auth(int ws_socket, struct http_request_ctx *request_ctx, void *
 
 	if (strcmp(auth, expected)) {
 		LOG_WRN("Websocket auth incorrect (%s)", rx_buf);
-		websocket_disconnect(ws_socket);
 		return -EPERM;
 	}
 
