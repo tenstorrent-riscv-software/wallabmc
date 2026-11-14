@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Check SPDX licenses
-        uses: tenstorrent/tt-github-actions/.github/actions/spdx-checker@main
+        uses: tenstorrent/tt-github-actions/.github/actions/spdx-checker@5f18fe6f86d825c87924d5559ac442ac7eca534f # main
         with:
           verbose: 'true'
           ignore_config_file: .github/spdx-ignore.yaml
