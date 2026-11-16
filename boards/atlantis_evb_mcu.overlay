@@ -4,10 +4,10 @@
 
 /*
  * The EVB has no DIP switches on the mux selects and the pull-ups leave
- * them at 11 (no source), so route both SoC JTAG ports to the USB bridge
- * U73 until jtag.c takes a port for the MCU. The M.2 enable has no pull
- * resistor; the hog keeps the slot off from MCUboot until the power
- * sequence reaches it.
+ * them at 11 (no source), so hog both SoC JTAG ports to the USB bridge
+ * U73 from MCUboot onward; the JTAG daemons park them there between
+ * sessions. The M.2 enable has no pull resistor; the hog keeps the slot
+ * off from MCUboot until the power sequence reaches it.
  */
 &gpioa {
 	sys_jtag0_sel0_hog: sys_jtag0_sel0_hog {
@@ -30,6 +30,14 @@
 		gpios = <12 GPIO_ACTIVE_HIGH>;
 		output-low;
 	};
+};
+
+&jtag_ascalon {
+	select-idle = <0>;
+};
+
+&jtag_rcpu {
+	select-idle = <0>;
 };
 
 &gpioc {

@@ -123,10 +123,6 @@ Implemented in WallaBMC
      - SYS_UART_SEL1
      - ``sys_uart_sel1`` + gpio-hog
      - UART mux S1, held low
-   * - PA5, PA6, PA11, PA12
-     - SYS_JTAG0_SEL0/1, SYS_JTAG1_SEL0/1
-     - ``sys_jtag*_sel*`` + gpio-hogs
-     - JTAG mux selects, held at 00 (USB bridge U73)
    * - PG15
      - LED DS4
      - ``green_led`` / ``status-led``
@@ -217,10 +213,23 @@ Implemented in WallaBMC
      - ``tj_max``, ``fault`` of ``power_sequencer``
      - SoC junction over-temperature output through U103; a rising edge
        while the host runs powers it off (see Power)
-   * - PF12/PF11/PF13/PF14
-     - STM32_JTAG0_TCK/TMS/TDI/TDO
-     - ``jtag0_*`` / ``jtagtck`` etc.
-     - RCPU JTAG bit-bang (TCP port 7777), needs mux select 01
+   * - PG10/PG9/PG11/PG12/PG13
+     - STM32_JTAG1_TCK/TMS/TDI/TDO/TRST
+     - ``jtag1_*``, ``jtag_ascalon``
+     - Ascalon JTAG bit-bang, TCP port 7777, the default chain (see JTAG)
+   * - PA11 / PA12
+     - SYS_JTAG1_SEL0 / SEL1
+     - ``sys_jtag1_sel*`` + gpio-hogs, ``select`` of ``jtag_ascalon``
+     - Ascalon JTAG mux select: hogged to 00 (FT4232 U73), 01 (MCU) while
+       a client is connected
+   * - PF12/PF11/PF13/PF14/PF15
+     - STM32_JTAG0_TCK/TMS/TDI/TDO/TRST
+     - ``jtag0_*``, ``jtag_rcpu``
+     - RCPU JTAG bit-bang, TCP port 7778
+   * - PA5 / PA6
+     - SYS_JTAG0_SEL0 / SEL1
+     - ``sys_jtag0_sel*`` + gpio-hogs, ``select`` of ``jtag_rcpu``
+     - RCPU JTAG mux select, same scheme
    * - PA1,PA2,PA7,PB0,PB1,PB11-PB13,PC1-PC5,PE2
      - ETH_MII_* / ETH_MDC / ETH_MII_MDIO
      - ``mac``, ``mdio``
@@ -321,8 +330,7 @@ Not connected or spare
 PA0, PB15 and PD4 reach header J86 pins 3, 4 and 7 and are free. PB3 and
 PB5 are no-connects. PE9 (POWER_5V_EN) and PG6 (PWR_GOOD_5V) carry labels
 that go nowhere: P5V is an ATX rail. PA15 and PB4 have 4.7K pull-ups only.
-PE4 (ETH_MII_INTR), PF15 (STM32_JTAG0_TRST) and the JTAG1 pins PG9 to PG13
-are wired but not in the DTS (see JTAG).
+PE4 (ETH_MII_INTR) is wired but not in the DTS.
 
 Ethernet
 ========
@@ -662,14 +670,42 @@ Two SoC TAPs, each behind SN74CB3Q3253 muxes with the UART mux encoding
      - PA11 (SEL0), PA12 (SEL1)
      - J73
 
-The selects have 4.7K pull-ups to P3V3 and no switch (the 499R pull-downs
-are not fitted), so with the MCU idle both TAPs are unreachable. WallaBMC
-hogs all four selects low (00), which keeps the USB JTAG path through U73
-working as on an SLT with its switches ON. ``jtag.c`` does not drive the
-selects yet and nothing on the board can override the hog, so the BMC's
-own bit-bang JTAG is unreachable on the EVB until it does; a test image
-can change ``sys_jtag0_sel0_hog`` to ``output-high`` (01), which cuts the
-USB path through U73 while it runs.
+WallaBMC serves both chains to OpenOCD's ``remote_bitbang`` driver, one
+TCP port each (``wallabmc,jtag`` nodes in
+``boards/tenstorrent/common/atlantis_wallabmc.dtsi``):
+
+.. list-table::
+   :header-rows: 1
+
+   * - Chain
+     - Node
+     - TCP port
+     - OpenOCD config
+   * - JTAG1 (Ascalon)
+     - ``jtag_ascalon``
+     - 7777
+     - ``boards/tenstorrent/common/openocd/ascalon.cfg``
+   * - JTAG0 (RCPU)
+     - ``jtag_rcpu``
+     - 7778
+     - ``boards/tenstorrent/common/openocd/rcpu.cfg``
+
+The Ascalon CPU is the default chain and keeps the port the daemon has
+always used. The selects have 4.7K pull-ups to P3V3 and no switch (the
+499R R626/R627 and R636/R637 are not fitted), so gpio-hogs hold all
+four low from MCUboot onward and the daemons park them there between
+sessions (``select-idle`` in the overlay): the USB path through U73
+works whenever no BMC JTAG session is open, and unlike 11 that leaves
+the SoC's JTAG inputs defined, since at 11 the mux outputs float into
+the level shifters U64/U77. Each daemon leaves its
+TCK/TMS/TDI/TDO/TRST pins as inputs until a client connects; it then
+drives TCK and TDI low and TMS high, releases TRST, drives the selects
+to 01, and undoes both when the client goes away. The ``remote_bitbang``
+reset commands drive TRST; SRST is not wired to the daemon, the host
+reset belongs to the sequencer (see SoC reset). The bridge has no TRST
+on the Ascalon chain (U80 1B1 carries only pull-up R694), so the USB
+path cannot assert it; the BMC (01) and header J73 (10) can.
+``boards/tenstorrent/common/openocd/README.md`` covers the host side.
 
 Boot flash and SD muxes
 =======================
@@ -929,8 +965,6 @@ Feature work
    no delays between them; only step 1 has an off delay.
 #. Re-assert PB10 after a warm BMC reset if the host was on, which needs
    the host power state persisted across BMC reboots.
-#. Drive the JTAG mux selects from the JTAG daemon (01 on connect, back to
-   00 on disconnect).
 #. Boot-mode control through ``soc_btm*`` once the encoding is known.
 #. TMP117 and EEPROM support on ``i2c2`` (board temperature, identity);
    use the board ID straps to tell EVB and SLT apart if one image serves

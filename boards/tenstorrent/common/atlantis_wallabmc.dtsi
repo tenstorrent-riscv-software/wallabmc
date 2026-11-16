@@ -11,9 +11,8 @@
 		zephyr,code-partition = &slot0_partition;
 	};
 
-	/* RCPU JTAG, reaches the SoC when SYS_JTAG0_SEL1:SEL0 = 01 */
-	jtag {
-		// What is a better setting for this?
+	/* RCPU JTAG pins, reach the SoC when SYS_JTAG0_SEL1:SEL0 = 01 */
+	jtag0_pins {
 		compatible = "gpio-leds";
 
 		jtag0_tck: jtag0_tck {
@@ -28,14 +27,66 @@
 		jtag0_tdo: jtag0_tdo {
 			gpios = <&gpiof 14 GPIO_PULL_UP>;
 		};
+		jtag0_trst: jtag0_trst {
+			gpios = <&gpiof 15 GPIO_ACTIVE_LOW>;
+		};
+	};
+
+	/* Ascalon JTAG pins, reach the SoC when SYS_JTAG1_SEL1:SEL0 = 01 */
+	jtag1_pins {
+		compatible = "gpio-leds";
+
+		jtag1_tck: jtag1_tck {
+			gpios = <&gpiog 10 GPIO_ACTIVE_HIGH>;
+		};
+		jtag1_tms: jtag1_tms {
+			gpios = <&gpiog 9 GPIO_ACTIVE_HIGH>;
+		};
+		jtag1_tdi: jtag1_tdi {
+			gpios = <&gpiog 11 GPIO_ACTIVE_HIGH>;
+		};
+		jtag1_tdo: jtag1_tdo {
+			gpios = <&gpiog 12 GPIO_PULL_UP>;
+		};
+		jtag1_trst: jtag1_trst {
+			gpios = <&gpiog 13 GPIO_ACTIVE_LOW>;
+		};
+	};
+
+	/*
+	 * One remote_bitbang server per SoC JTAG chain. The Ascalon CPU is
+	 * the default: it takes the port OpenOCD users already know. Each
+	 * daemon drives its mux selects to 01 (MCU) only while a client is
+	 * connected; between sessions the SLT leaves them to SW2/SW3 and
+	 * the EVB overlay parks them at 00 (FT4232 U73).
+	 */
+	jtag_ascalon: jtag-ascalon {
+		compatible = "wallabmc,jtag";
+		label = "Ascalon";
+		port = <7777>;
+		tck = <&jtag1_tck>;
+		tms = <&jtag1_tms>;
+		tdi = <&jtag1_tdi>;
+		tdo = <&jtag1_tdo>;
+		trst = <&jtag1_trst>;
+		select = <&sys_jtag1_sel0 &sys_jtag1_sel1>;
+		select-mcu = <1>;
+	};
+
+	jtag_rcpu: jtag-rcpu {
+		compatible = "wallabmc,jtag";
+		label = "RCPU";
+		port = <7778>;
+		tck = <&jtag0_tck>;
+		tms = <&jtag0_tms>;
+		tdi = <&jtag0_tdi>;
+		tdo = <&jtag0_tdo>;
+		trst = <&jtag0_trst>;
+		select = <&sys_jtag0_sel0 &sys_jtag0_sel1>;
+		select-mcu = <1>;
 	};
 
 	aliases {
-		jtagtck = &jtag0_tck;
-		jtagtms = &jtag0_tms;
-		jtagtdi = &jtag0_tdi;
-		jtagtdo = &jtag0_tdo;
-
 		reset-gpio-1 = &sys_rstn;
 		status-led = &green_led;
 

@@ -8,31 +8,34 @@
         zephyr,code-partition = &slot0_partition;
     };
 
-    jtag {
-        // What is a better setting for this?
+    jtag_pins {
         compatible = "gpio-leds";
 
         // not connected for now
-        jtagtck: jtag_tck {
+        jtag_tck: jtag_tck {
             gpios = <&gpioe  0 GPIO_ACTIVE_HIGH>;
         };
-        jtagtms: jtag_tms {
+        jtag_tms: jtag_tms {
             gpios = <&gpioe  1 GPIO_ACTIVE_HIGH>;
         };
-        jtagtdo: jtag_tdo {
+        jtag_tdo: jtag_tdo {
             gpios = <&gpioe  2     GPIO_PULL_UP>;
         };
-        jtagtdi: jtag_tdi {
+        jtag_tdi: jtag_tdi {
             gpios = <&gpioe  4 GPIO_ACTIVE_HIGH>;
         };
     };
 
-    aliases {
-        jtagtck = &jtagtck;
-        jtagtms = &jtagtms;
-        jtagtdi = &jtagtdi;
-        jtagtdo = &jtagtdo;
+    jtag: jtag {
+        compatible = "wallabmc,jtag";
+        port = <7777>;
+        tck = <&jtag_tck>;
+        tms = <&jtag_tms>;
+        tdi = <&jtag_tdi>;
+        tdo = <&jtag_tdo>;
+    };
 
+    aliases {
         power-gpio-1 = &dcen;
         power-gpio-2 = &atxpson;
         power-led = &red_led;

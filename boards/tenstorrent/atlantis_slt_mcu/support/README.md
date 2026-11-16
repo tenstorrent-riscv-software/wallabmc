@@ -48,3 +48,9 @@ Any SWD probe on J61 works with the stock OpenOCD STM32F7 target config:
 openocd -f interface/stlink.cfg -f target/stm32f7x.cfg \
   -c 'init; halt; flash write_image erase build/mcuboot/zephyr/zephyr.hex; flash write_image erase build/wallabmc/zephyr/zephyr.signed.hex; reset; exit'
 ```
+
+## Debugging the SoC through the BMC
+
+WallaBMC serves both SoC JTAG chains to OpenOCD. The configs and how to
+use them are in
+[boards/tenstorrent/common/openocd](../../common/openocd/README.md).
