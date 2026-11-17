@@ -531,7 +531,6 @@
 				<nav class="sidebar">
 					<a class="sidebar-item active" data-section="system-overview" href="#" onclick="showSection('system-overview'); return false;">System Overview</a>
 					<a class="sidebar-item" data-section="power-control" href="#" onclick="showSection('power-control'); return false;">Host Power Control</a>
-					<a class="sidebar-item" data-section="host-console" href="#" onclick="showSection('host-console'); return false;">Host Console</a>
 					<a class="sidebar-item" data-section="bmc" href="#" onclick="showSection('bmc'); return false;">BMC Settings</a>
 					<a class="sidebar-item" data-section="bmc-shell" href="#" onclick="showSection('bmc-shell'); return false;">BMC Shell</a>
 					<a id="sidebar-sensors" class="sidebar-item hidden" data-section="sensors" href="#" onclick="showSection('sensors'); return false;">Sensors</a>
@@ -555,20 +554,6 @@
 								<div class="info-item"><span class="info-item-label">CPU Count</span><span class="data-value" id="sys-cpu">Loading...</span></div>
 								<div class="info-item"><span class="info-item-label">Memory</span><span class="data-value" id="sys-memory">Loading...</span></div>
 							</div>
-						</div>
-					</div>
-
-					<div id="section-host-console" class="hidden">
-						<div class="term-window">
-							<div class="term-header">
-								<span>Host Serial Console</span>
-								<div class="term-font-controls">
-									<select class="term-font-select" onchange="applyTermFont(this)"></select>
-									<input type="number" class="term-font-size" min="8" max="32" step="1" onchange="applyTermFont(this)">
-								</div>
-							</div>
-							<div id="host-terminal-container" class="term-body"></div>
-							<div class="term-resize-corner" onmousedown="startTermResize(event, this.closest('.term-window'))"></div>
 						</div>
 					</div>
 
@@ -797,7 +782,7 @@
 			const toggle = document.getElementById('cfg-dark-mode');
 			if (toggle) toggle.checked = enabled;
 			const theme = enabled ? TERM_THEME_DARK : TERM_THEME_LIGHT;
-			[hostWsConsole, bmcWsConsole].forEach(c => { if (c) c.term.options.theme = theme; });
+			[...Object.values(wsConsoles), bmcWsConsole].forEach(c => { if (c) c.term.options.theme = theme; });
 		}
 
 		(function () {
@@ -960,6 +945,8 @@
 					console.log("No BMC temperature sensor found.");
 				}
 
+				await loadConsoles();
+
 				hide('login-section');
 				show('dashboard-section');
 
@@ -982,8 +969,8 @@
 			tempChart = null;
 
 			stopPolling();
-			closeTerminal(true);
-			closeTerminal(false);
+			closeTerminals();
+			removeConsoleSections();
 
 			document.getElementById('sidebar-sensors').classList.add('hidden');
 			showSection('system-overview');
@@ -1390,7 +1377,7 @@
 		});
 
 		// --- Sidebar navigation ---
-		const SECTIONS = ['system-overview', 'host-console', 'bmc-shell', 'power-control', 'bmc', 'sensors'];
+		let SECTIONS = ['system-overview', 'bmc-shell', 'power-control', 'bmc', 'sensors'];
 
 		function toggleSidebar() {
 			const sidebar = document.querySelector('.sidebar');
@@ -1412,17 +1399,20 @@
 			if (item) item.classList.add('active');
 			closeSidebar();
 
-			if (name === 'host-console' && !hostWsConsole) {
-				const socketProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-				const wsUrl = `${socketProtocol}//${window.location.host}/console/host`;
-				hostWsConsole = new WSConsole(wsUrl, document.getElementById('host-terminal-container'), 'Host Serial Console', null);
+			if (name.startsWith('console-')) {
+				const c = consoleList[Number.parseInt(name.slice('console-'.length), 10)];
+				if (c && !wsConsoles[name]) {
+					const socketProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+					const wsUrl = `${socketProtocol}//${window.location.host}${c.endpoint}`;
+					wsConsoles[name] = new WSConsole(wsUrl, document.getElementById(name + '-terminal-container'), c.label + ' Serial Console', null);
+				}
 			} else if (name === 'bmc-shell' && !bmcWsConsole) {
 				const socketProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 				const wsUrl = `${socketProtocol}//${window.location.host}/console/bmc`;
 				const promptString = '\x1b[1;32mWelcome to WallaBMC 🦘\x1b[0m\n\x1b[1;32mbmc:~$\x1b[0m ';
 				bmcWsConsole = new WSConsole(wsUrl, document.getElementById('bmc-terminal-container'), 'WallaBMC Shell', promptString);
 			}
-			if (name === 'host-console' && hostWsConsole) hostWsConsole.term.focus();
+			if (wsConsoles[name]) wsConsoles[name].term.focus();
 			if (name === 'bmc-shell' && bmcWsConsole) bmcWsConsole.term.focus();
 		}
 
@@ -1487,7 +1477,7 @@
 			document.querySelectorAll('.term-font-size').forEach(i => i.value = fontSize);
 			localStorage.setItem('term-font-family', fontFamily);
 			localStorage.setItem('term-font-size', fontSize);
-			[hostWsConsole, bmcWsConsole].forEach(c => {
+			[...Object.values(wsConsoles), bmcWsConsole].forEach(c => {
 				if (!c) return;
 				c.term.options.fontFamily = fontFamily;
 				c.term.options.fontSize   = fontSize;
@@ -1577,37 +1567,95 @@
 			}
 		}
 
-		let hostWsConsole = null;
+		// Host consoles listed by GET /consoles: [{label, endpoint}, ...]
+		let consoleList = [];
+		const wsConsoles = {};
 		let bmcWsConsole = null;
 
-		function closeTerminal(host) {
-			if (host) {
-				if (hostWsConsole) {
-					if (hostWsConsole.resizeObserver)
-						hostWsConsole.resizeObserver.disconnect();
-					if (hostWsConsole.windowResizeHandler)
-						window.removeEventListener('resize', hostWsConsole.windowResizeHandler);
-					if (hostWsConsole.ws)
-						hostWsConsole.ws.close()
-					if (hostWsConsole.term)
-						hostWsConsole.term.dispose()
-					hostWsConsole = null;
-				}
-				document.getElementById('host-terminal-container').innerHTML = '';
-			} else {
-				if (bmcWsConsole) {
-					if (bmcWsConsole.resizeObserver)
-						bmcWsConsole.resizeObserver.disconnect();
-					if (bmcWsConsole.windowResizeHandler)
-						window.removeEventListener('resize', bmcWsConsole.windowResizeHandler);
-					if (bmcWsConsole.ws)
-						bmcWsConsole.ws.close()
-					if (bmcWsConsole.term)
-						bmcWsConsole.term.dispose()
-					bmcWsConsole = null;
-				}
-				document.getElementById('bmc-terminal-container').innerHTML = '';
+		function disposeWsConsole(wsc, containerId) {
+			if (wsc) {
+				if (wsc.resizeObserver)
+					wsc.resizeObserver.disconnect();
+				if (wsc.windowResizeHandler)
+					window.removeEventListener('resize', wsc.windowResizeHandler);
+				if (wsc.ws)
+					wsc.ws.close()
+				if (wsc.term)
+					wsc.term.dispose()
 			}
+			const container = document.getElementById(containerId);
+			if (container)
+				container.innerHTML = '';
+		}
+
+		function closeTerminals() {
+			Object.keys(wsConsoles).forEach(name => {
+				disposeWsConsole(wsConsoles[name], name + '-terminal-container');
+				delete wsConsoles[name];
+			});
+			disposeWsConsole(bmcWsConsole, 'bmc-terminal-container');
+			bmcWsConsole = null;
+		}
+
+		// Drop the sidebar items and sections built for the console list
+		function removeConsoleSections() {
+			Object.keys(wsConsoles).forEach(name => {
+				disposeWsConsole(wsConsoles[name], name + '-terminal-container');
+				delete wsConsoles[name];
+			});
+			document.querySelectorAll('[data-console-section]').forEach(el => el.remove());
+			SECTIONS = SECTIONS.filter(s => !s.startsWith('console-'));
+			consoleList = [];
+		}
+
+		// One sidebar item and terminal section per console the BMC serves
+		async function loadConsoles() {
+			removeConsoleSections();
+			let list = [];
+			try {
+				const resp = await fetch('/consoles', { cache: 'no-cache' });
+				if (resp.ok)
+					list = await resp.json();
+			} catch (e) {
+				console.log('No console list', e);
+			}
+			consoleList = (Array.isArray(list) ? list : []).filter(c => c && typeof c.label === 'string' && typeof c.endpoint === 'string');
+
+			const sidebarAnchor = document.querySelector('.sidebar-item[data-section="bmc"]');
+			const sectionAnchor = document.getElementById('section-bmc-shell');
+			consoleList.forEach((c, i) => {
+				const name = 'console-' + i;
+
+				const item = document.createElement('a');
+				item.className = 'sidebar-item';
+				item.dataset.section = name;
+				item.dataset.consoleSection = '1';
+				item.href = '#';
+				item.textContent = c.label + ' Console';
+				item.onclick = () => { showSection(name); return false; };
+				sidebarAnchor.parentNode.insertBefore(item, sidebarAnchor);
+
+				const section = document.createElement('div');
+				section.id = 'section-' + name;
+				section.className = 'hidden';
+				section.dataset.consoleSection = '1';
+				section.innerHTML = `
+					<div class="term-window">
+						<div class="term-header">
+							<span></span>
+							<div class="term-font-controls">
+								<select class="term-font-select" onchange="applyTermFont(this)"></select>
+								<input type="number" class="term-font-size" min="8" max="32" step="1" onchange="applyTermFont(this)">
+							</div>
+						</div>
+						<div id="${name}-terminal-container" class="term-body"></div>
+						<div class="term-resize-corner" onmousedown="startTermResize(event, this.closest('.term-window'))"></div>
+					</div>`;
+				section.querySelector('.term-header span').textContent = c.label + ' Serial Console';
+				sectionAnchor.parentNode.insertBefore(section, sectionAnchor);
+				SECTIONS.push(name);
+			});
+			populateFontSelects();
 		}
 
 		populateFontSelects();

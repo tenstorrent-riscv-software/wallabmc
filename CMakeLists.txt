@@ -53,7 +53,6 @@ target_sources(app PRIVATE
 	src/main.c
 	src/net.c
 	src/power.c
-	src/synch.c
 	src/vpd.c
 	src/time.c
 )

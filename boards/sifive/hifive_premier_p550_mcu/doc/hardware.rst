@@ -73,7 +73,7 @@ Currently implemented in WallaBMC
      - Recovery button. Active LOW. **Bug**: ``reset-button`` alias missing in overlay, so ``button_init()`` silently skips.
    * - PB15
      - UART MUX SEL
-     - ``uartmuxsel``
+     - ``uartmuxsel``, ``mux-select`` of ``console_host``
      - TS5A23157 mux control. Active HIGH. (see UART mux section)
    * - PD8/PD9
      - USART3 TX/RX
@@ -81,8 +81,8 @@ Currently implemented in WallaBMC
      - MCU debug console (via FT4232H ch D -> USB debug)
    * - PC6/PC7
      - USART6 TX/RX
-     - ``usart6``
-     - Console bridge to SoC UART0 (DMA-enabled)
+     - ``usart6``, ``uart`` of ``console_host``
+     - Console bridge to SoC UART0 (TCP port 22, ``/console/host``)
    * - PC10/PC11
      - UART4 TX/RX
      - ``uart4``
@@ -638,7 +638,8 @@ independent channels, each appearing as a separate USB serial/JTAG interface:
    * - **C** (CDBUS)
      - via mux to PC6/PC7
      - UART (muxed)
-     - Goes through TS5A23157 mux (U64). UART_MUX_SEL selects MCU USART6 or SoC UART0.
+     - Goes through TS5A23157 mux (U64). UART_MUX_SEL routes SoC UART0 to
+       FT4232 ch C (0) or to MCU USART6 (1).
    * - **D** (DDBUS)
      - PD8/PD9
      - MCU console UART
@@ -652,20 +653,23 @@ UART mux architecture
 
 **Channel C UART mux (U64, TS5A23157)**:
 
-- ``UART_MUX_SEL = 0`` (PB15 LOW, default): FT4232 ch C talks directly to SoC UART0
-- ``UART_MUX_SEL = 1`` (PB15 HIGH): FT4232 ch C talks to MCU USART6
+- ``UART_MUX_SEL = 0`` (PB15 LOW, default): FT4232 ch C talks directly to
+  SoC UART0
+- ``UART_MUX_SEL = 1`` (PB15 HIGH): SoC UART0 talks to MCU USART6; FT4232
+  ch C is disconnected
 
-When a network client connects to the console bridge (TCP port 22), WallaBMC
-sets UART_MUX_SEL=1 so that:
+WallaBMC drives UART_MUX_SEL=1 at boot, as the ``mux-select`` of its
+``console_host`` node, and leaves it there:
 
-- TCP client <-> MCU USART6 <-> (via mux) <-> SoC UART0
+- console logger, TCP port 22 and web terminal <-> MCU USART6 <-> (via
+  mux) <-> SoC UART0
 
-When no TCP client is connected (MUX_SEL=0):
+While the MCU is in reset or unprogrammed (MUX_SEL=0):
 
 - USB debug ch C <-> (direct) <-> SoC UART0
 
-This means the USB debug UART channel C is disconnected from the SoC during
-a console bridge TCP session. This is by design - it prevents contention
+This means the USB debug UART channel C is disconnected from the SoC
+whenever WallaBMC runs. This is by design - it prevents contention
 between USB and network console users.
 
 Power architecture and sequencing

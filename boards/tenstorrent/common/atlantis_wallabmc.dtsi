@@ -30,6 +30,30 @@
 		};
 	};
 
+	/*
+	 * The host consoles. SoC UART1 carries the Ascalon OpenSBI/Linux
+	 * console and is the default; SoC UART0 carries the RCPU boot ROM
+	 * and HILT console. Both muxes share the selects, so each node
+	 * names the same line.
+	 */
+	console_host: console-host {
+		compatible = "wallabmc,console";
+		label = "Host";
+		uart = <&usart3>;
+		port = <22>;
+		endpoint = "/console/host";
+		mux-select = <&sys_uart_sel0>;
+	};
+
+	console_rcpu: console-rcpu {
+		compatible = "wallabmc,console";
+		label = "RCPU";
+		uart = <&usart2>;
+		port = <23>;
+		endpoint = "/console/rcpu";
+		mux-select = <&sys_uart_sel0>;
+	};
+
 	aliases {
 		jtagtck = &jtag0_tck;
 		jtagtms = &jtag0_tms;
@@ -40,8 +64,6 @@
 		status-led = &green_led;
 
 		reset-button = &user_button;
-		host-console-uart = &usart2;
-		host-console-uart-muxsel = &sys_uart_sel0;
 	};
 };
 

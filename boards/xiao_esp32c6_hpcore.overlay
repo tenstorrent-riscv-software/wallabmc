@@ -46,8 +46,15 @@
 		};
 	};
 
+	console_host: console-host {
+		compatible = "wallabmc,console";
+		label = "Host";
+		uart = <&uart0>;
+		port = <22>;
+		endpoint = "/console/host";
+	};
+
 	aliases {
-		host-console-uart = &uart0;
 		power-gpio-1 = &host_pwrbtn;
 		reset-gpio-1 = &host_sysreset;
 		status-led = &yellow_led;

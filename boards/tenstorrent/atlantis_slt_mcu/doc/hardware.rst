@@ -80,15 +80,17 @@ Implemented in WallaBMC
      - MCU console, FT4232 channel C and J70
    * - PD5 / PD6
      - STM_USART2_TX / RX
-     - ``usart2`` / ``host-console-uart``
-     - SoC UART0 through mux U82
+     - ``usart2``, ``uart`` of ``console_rcpu``
+     - SoC UART0 through mux U82, the RCPU boot ROM and HILT console at
+       9600 baud (TCP port 23, ``/console/rcpu``)
    * - PD8 / PD9
      - STM_USART3_TX / RX
-     - ``usart3``
-     - SoC UART1 through mux U83 (enabled, unused by code)
+     - ``usart3``, ``uart`` of ``console_host``
+     - SoC UART1 through mux U83, the Ascalon OpenSBI/Linux console
+       (TCP port 22, ``/console/host``)
    * - PD15
      - SYS_UART_SEL0
-     - ``sys_uart_sel0`` / ``host-console-uart-muxsel``
+     - ``sys_uart_sel0``, ``mux-select`` of both consoles
      - UART mux S0, driven high while WallaBMC runs
    * - PD14
      - SYS_UART_SEL1
@@ -337,10 +339,17 @@ select lines:
 
 Both lines have 4.7K pull-ups and a DIP switch (SW4) that grounds them
 through 499R when ON. WallaBMC hogs SEL1 low and drives SEL0 high as
-``host-console-uart-muxsel`` at init, so while the BMC runs the SoC
-console (UART0) is on the console logger, console bridge (TCP port 22) and
-web terminal, and the USB channels see nothing. The MCU pushes about 7 mA
-into a closed SW4 section; set SW4 OFF when the BMC owns the selects.
+the ``mux-select`` of both console nodes at init, so while the BMC runs
+both SoC UARTs are on the MCU and the USB channels see nothing. Each is
+a ``wallabmc,console`` node with its own log, raw TCP port and web
+terminal. UART1 is the Ascalon OpenSBI/Linux console (ttyS0, 115200 8N1
+in the Linux ``atlantis-evb.dts``): ``console_host``, TCP port
+22 and ``/console/host``. UART0 is the console and Ymodem image loader
+of the RCPU boot ROM and of HILT, the first-stage boot loader (FSBL),
+at 9600 baud until the OTP "UART full speed" option is fused:
+``console_rcpu``, TCP port 23 and
+``/console/rcpu``. The MCU pushes about 7 mA into a closed SW4 section;
+set SW4 OFF when the BMC owns the selects.
 
 SoC reset
 =========
@@ -839,6 +848,11 @@ Bring-up checklist
    powering off`` names the first rail whose power good did not rise
    (``<PG> not good``) or was already high (``<PG> still good``). The
    per-step ``<ENABLE> on`` lines are at debug level.
+#. Watch both consoles through a ``power on``: the boot ROM and HILT
+   banners on the RCPU console (TCP port 23, ``nc <bmc> 23``, or the web
+   terminal) at 9600 baud, then the OpenSBI/Linux banner on the host
+   console (TCP port 22). Garbage on the RCPU console means the part is
+   fused for 115200: change ``current-speed`` on ``usart2``.
 #. With the host running, read PG0 (TJ_MAX_3V3): it must be low and
    ``power on`` must not have logged ``TJ_MAX_3V3 asserted at reset
    release``; if it did, see Known issues. If the SoC can be made to

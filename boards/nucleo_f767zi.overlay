@@ -36,6 +36,14 @@
         };
     };
 
+    console_host: console-host {
+        compatible = "wallabmc,console";
+        label = "Host";
+        uart = <&usart6>;
+        port = <22>;
+        endpoint = "/console/host";
+    };
+
     aliases {
         jtagtck = &jtagtck;
         jtagtms = &jtagtms;
@@ -46,7 +54,6 @@
         status-led = &blue_led;
 
         reset-button = &user_button;
-	host-console-uart = &usart6;
     };
 };
 
