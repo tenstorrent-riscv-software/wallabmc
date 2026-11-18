@@ -529,4 +529,15 @@ config CONSOLE_BRIDGE_PRIORITY
 
 endif
 
+# Quieten the Ethernet PHY drivers, phy_mii logs every link change at
+# INF. The choice only exists on boards that enable ETH_DRIVER, so
+# default it here rather than assign it in prj.conf.
+if ETH_PHY_DRIVER
+
+choice PHY_LOG_LEVEL_CHOICE
+	default PHY_LOG_LEVEL_WRN
+endchoice
+
+endif # ETH_PHY_DRIVER
+
 source "Kconfig.zephyr"
