@@ -1,6 +1,6 @@
 ## Nucleo F767ZI Atlantis Variant Documentation
 
-`nucleo_f767zi/stm32f767xx/atlantis` is the [Nucleo F767ZI](nucleo_f767zi.md)
+`nucleo_f767zi/stm32f767xx/atlantis` is the [Nucleo F767ZI](nucleo_f7.md)
 limited to what the STM32F746ZG on the Atlantis
 [SLT](atlantis_slt_mcu.md) and [EVB](atlantis_evb_mcu.md) boards has. The
 Nucleo's STM32F767ZI has twice the flash and half as much RAM again, so a
@@ -10,7 +10,7 @@ layout on the Nucleo hardware.
 
 It is still a Nucleo: the pins, console, Ethernet PHY, LEDs and button are
 those of the Nucleo, and there are no Atlantis GPIOs, sensors or EEPROM.
-See [nucleo_f767zi.md](nucleo_f767zi.md) for the consoles.
+See [nucleo_f7.md](nucleo_f7.md) for the consoles.
 
 ### Building
 ```

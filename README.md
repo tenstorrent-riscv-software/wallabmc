@@ -102,7 +102,7 @@ board specific documentation for details.
 
 [Atlantis SLT MCU](boards/atlantis_slt_mcu.md)
 [Atlantis EVB MCU](boards/atlantis_evb_mcu.md)
-[Nucleo F767ZI](boards/nucleo_f767zi.md)
+[Nucleo F767ZI](boards/nucleo_f7.md)
 [Nucleo F767ZI Atlantis variant](boards/nucleo_f767zi_atlantis.md)
 [P550 MCU](boards/hifive_premier_p550_mcu.md)
 [XIAO ESP32-C6](boards/xiao_esp32c6_hpcore.md)
