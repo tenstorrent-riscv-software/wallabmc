@@ -93,7 +93,7 @@ these options.
 Different boards have different build steps. Refer to the
 board specific documentation for details.
 
-[Nucleo F767ZI](boards/nucleo_f767zi.md)
+[Nucleo F767ZI](boards/nucleo_f7.md)
 [P550 MCU](boards/hifive_premier_p550_mcu.md)
 [XIAO ESP32-C6](boards/xiao_esp32c6_hpcore.md)
 [QEMU](boards/qemu_cortex_m3.md)
