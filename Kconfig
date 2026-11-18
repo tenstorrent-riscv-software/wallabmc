@@ -165,7 +165,12 @@ config NET_SOCKETS_TLS_MAX_CONTEXTS
 # negotiate smaller sizes, so 1500 should be okay there. Redfish
 # and curl with auth headers seem to require more (4096 works).
 # may require more?
-config MBEDTLS_SSL_MAX_CONTENT_LEN
+config MBEDTLS_SSL_IN_CONTENT_LEN
+	int
+	depends on APP_CRYPTO
+	default 4096
+
+config MBEDTLS_SSL_OUT_CONTENT_LEN
 	int
 	depends on APP_CRYPTO
 	default 4096
