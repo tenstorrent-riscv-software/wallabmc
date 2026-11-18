@@ -1,0 +1,60 @@
+// Nucleo F756ZG
+
+#include "nucleo_stm32f7_wallabmc.dtsi"
+
+// The upstream board does not enable the RTC or the ADC used for the
+// die temperature sensor.
+&clk_lsi {
+    status = "okay";
+};
+
+&rtc {
+    clocks = <&rcc STM32_CLOCK(APB1, 28)>,
+             <&rcc STM32_SRC_LSI RTC_SEL(2)>;
+    status = "okay";
+};
+
+&adc123_common {
+    status = "okay";
+};
+
+&adc1 {
+    pinctrl-0 = <&adc1_in0_pa0>;
+    pinctrl-names = "default";
+    status = "okay";
+};
+
+/delete-node/ &boot_partition;
+/delete-node/ &slot0_partition;
+/delete-node/ &slot1_partition;
+/delete-node/ &scratch_partition;
+
+// 1MB of flash: sectors 0-3 are 32KB, sector 4 is 128KB, sectors 5-7
+// are 256KB.
+&flash0 {
+    partitions {
+        #address-cells = <1>;
+        #size-cells = <1>;
+        ranges;
+
+        boot_partition: partition@0 {
+            compatible = "zephyr,mapped-partition";
+            label = "mcuboot";
+            reg = <0x00000000 DT_SIZE_K(32)>;
+        };
+
+        /* 3*32KB, enough for NVS storage */
+        storage_partition: partition@8000 {
+            compatible = "zephyr,mapped-partition";
+            label = "storage";
+            reg = <0x00008000 DT_SIZE_K(96)>;
+        };
+
+        /* Sectors 4-7, the rest of the flash */
+        slot0_partition: partition@20000 {
+            compatible = "zephyr,mapped-partition";
+            label = "image-0";
+            reg = <0x00020000 DT_SIZE_K(896)>;
+        };
+    };
+};
