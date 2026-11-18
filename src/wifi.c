@@ -44,7 +44,7 @@ static void wifi_event_handler(struct net_mgmt_event_callback *cb,
 			wifi_connected = true;
 			/*
 			 * The driver's own DHCP automation is off
-			 * (CONFIG_ESP32_WIFI_STA_AUTO_DHCPV4=n) and the
+			 * (CONFIG_WIFI_STA_AUTO_DHCPV4=n) and the
 			 * interface stays up across associations, so the
 			 * DHCP client cannot tell that the link changed.
 			 * Renew the lease when DHCP is enabled: this may
