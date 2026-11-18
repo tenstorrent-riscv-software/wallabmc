@@ -14,6 +14,9 @@ if NETWORKING
 config NET_L2_ETHERNET
 	default y
 
+config ETH_DRIVER
+	default y
+
 endif # NETWORKING
 
 endif # BOARD_HIFIVE_PREMIER_P550_MCU
