@@ -50,6 +50,24 @@ config APP_BLOCKING_WORKQUEUE_STACK_SIZE
 
 endif
 
+config APP_SUPPORTS_MCUBOOT_UPDATE
+	bool "Board supports mcuboot and DFU updates"
+	help
+	  Board .conf files can select this if they support mcuboot and
+	  OTA wallabmc firmware updates (DFU).
+
+config APP_MCUBOOT_UPDATE
+	bool "Support mcuboot flash updates"
+	default y
+	depends on BOOTLOADER_MCUBOOT
+	depends on APP_SUPPORTS_MCUBOOT_UPDATE
+	select FLASH
+	select IMG_MANAGER
+	select FLASH_MAP
+	select STREAM_FLASH
+	select STREAM_FLASH_ERASE
+	select IMG_ERASE_PROGRESSIVELY
+
 config APP_NTP
 	bool "NTP time synchronisation"
 	select SNTP
@@ -195,7 +213,11 @@ config APP_HTTP
 # HTTP_SERVER_MAX_HEADER_LEN.
 config HTTP_SERVER_CAPTURE_HEADER_BUFFER_SIZE
 	int
-	default 192
+	default 256
+
+config HTTP_SERVER_CAPTURE_HEADER_COUNT
+	int
+	default 4
 
 # Multiple streams can concurrently access a reqource and require
 # special handling which we don't do.

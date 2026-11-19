@@ -1,0 +1,11 @@
+# In theory using SWAP_SCRATCH mode should allow a confirm step that
+# auto downgrades the update if it does not reach confirm. I have not
+# been able to make this work yet on Nucleo. The swap works, it just
+# seems to be permanent always.
+choice MCUBOOT_MODE
+	default MCUBOOT_MODE_SINGLE_APP if BOARD_HIFIVE_PREMIER_P550_MCU
+	default MCUBOOT_MODE_OVERWRITE_ONLY
+endchoice
+
+source "${ZEPHYR_BASE}/share/sysbuild/Kconfig"
+
