@@ -50,6 +50,24 @@ config APP_BLOCKING_WORKQUEUE_STACK_SIZE
 
 endif
 
+config APP_SUPPORTS_MCUBOOT_UPDATE
+	bool "Board supports mcuboot and DFU updates"
+	help
+	  Board .conf files can select this if they support mcuboot and
+	  OTA wallabmc firmware updates (DFU).
+
+config APP_MCUBOOT_UPDATE
+	bool "Support mcuboot flash updates"
+	default y
+	depends on BOOTLOADER_MCUBOOT
+	depends on APP_SUPPORTS_MCUBOOT_UPDATE
+	select FLASH
+	select IMG_MANAGER
+	select FLASH_MAP
+	select STREAM_FLASH
+	select STREAM_FLASH_ERASE
+	select IMG_ERASE_PROGRESSIVELY
+
 config APP_NTP
 	bool "NTP time synchronisation"
 	select SNTP
@@ -197,10 +215,15 @@ config APP_HTTP
 	  if APP_HTTPS is enabled, otherwise it's always enabled.
 
 # Room for the captured Authorization, X-Auth-Code and Host headers at
-# HTTP_SERVER_MAX_HEADER_LEN.
+# HTTP_SERVER_MAX_HEADER_LEN. A firmware upload captures Content-Length too.
 config HTTP_SERVER_CAPTURE_HEADER_BUFFER_SIZE
 	int
+	default 256 if APP_MCUBOOT_UPDATE
 	default 192
+
+config HTTP_SERVER_CAPTURE_HEADER_COUNT
+	int
+	default 4 if APP_MCUBOOT_UPDATE
 
 # Room for the redirect to HTTPS over HTTP/2, with the longest Location.
 # Checked by a BUILD_ASSERT in http.c.

@@ -4,6 +4,14 @@
 # Defaults here come before Zephyr's sysbuild Kconfig, so they take
 # precedence over its defaults.
 
+# Boards with a second image slot take firmware updates: the application
+# writes the new image to slot 1 and MCUboot copies it over slot 0. The
+# others have one slot, and MCUboot only boots it.
+choice MCUBOOT_MODE
+	default MCUBOOT_MODE_OVERWRITE_ONLY if BOARD_NUCLEO_F767ZI_STM32F767XX
+	default MCUBOOT_MODE_SINGLE_APP
+endchoice
+
 # MCUboot checks an elliptic curve signature on the application.
 # BOOT_SIGNATURE_TYPE_ED25519 is supported as well. It is quicker to check,
 # but makes MCUboot too big for a 32 KiB boot partition.
