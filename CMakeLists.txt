@@ -145,6 +145,12 @@ if(CONFIG_APP_WEB)
   endforeach()
 endif()
 
+if(CONFIG_TF_PSA_CRYPTO_USER_CONFIG)
+  # The Mbed TLS libraries link zephyr_interface, so this puts
+  # CONFIG_TF_PSA_CRYPTO_USER_CONFIG_FILE on their include path
+  zephyr_include_directories(src/crypto)
+endif()
+
 if(CONFIG_APP_CRYPTO)
   find_program(OPENSSL_EXECUTABLE openssl)
   if(NOT OPENSSL_EXECUTABLE)
