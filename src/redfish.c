@@ -804,7 +804,12 @@ static int account_patch_handler(struct http_resource_user_data *user_data)
 	}
 
 	if (payload.password) {
-		config_bmc_password_set(payload.password);
+		ret = config_bmc_password_set(payload.password);
+		if (ret) {
+			LOG_ERR("Account: Failed to set password (err=%d)", ret);
+			return ret == -EINVAL ? HTTP_400_BAD_REQUEST
+					      : HTTP_500_INTERNAL_SERVER_ERROR;
+		}
 		LOG_INF("Admin Password Updated");
 	}
 
