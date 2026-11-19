@@ -165,7 +165,12 @@ config NET_SOCKETS_TLS_MAX_CONTEXTS
 # negotiate smaller sizes, so 1500 should be okay there. Redfish
 # and curl with auth headers seem to require more (4096 works).
 # may require more?
-config MBEDTLS_SSL_MAX_CONTENT_LEN
+config MBEDTLS_SSL_IN_CONTENT_LEN
+	int
+	depends on APP_CRYPTO
+	default 4096
+
+config MBEDTLS_SSL_OUT_CONTENT_LEN
 	int
 	depends on APP_CRYPTO
 	default 4096
@@ -528,5 +533,16 @@ config CONSOLE_BRIDGE_PRIORITY
 	default 5
 
 endif
+
+# Quieten the Ethernet PHY drivers, phy_mii logs every link change at
+# INF. The choice only exists on boards that enable ETH_DRIVER, so
+# default it here rather than assign it in prj.conf.
+if ETH_PHY_DRIVER
+
+choice PHY_LOG_LEVEL_CHOICE
+	default PHY_LOG_LEVEL_WRN
+endchoice
+
+endif # ETH_PHY_DRIVER
 
 source "Kconfig.zephyr"
