@@ -96,6 +96,10 @@ config APP_CRYPTO_PUBLIC_KEY
 	# Basic ciphers
 	select MBEDTLS_CIPHERSUITE_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
 	select PSA_WANT_ALG_SHA_256
+	# X25519 key exchange alongside P-256 (the certificate stays P-256).
+	# Clients such as OpenSSL send only an X25519 key share by default,
+	# so without it every TLS 1.3 handshake needs a HelloRetryRequest.
+	select PSA_WANT_ECC_MONTGOMERY_255
 	# Plus SHA384
 	select PSA_WANT_ALG_SHA_384
 	# Plus CHACHA20
