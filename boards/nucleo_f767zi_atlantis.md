@@ -38,7 +38,7 @@ builds.
 | Flash size (`flash0`, `CONFIG_FLASH_SIZE`) | 2048 KB | 1024 KB | 1024 KB |
 | RAM (`sram0`, `CONFIG_SRAM_SIZE`) | 384 KB at 0x20020000 | 256 KB at 0x20020000 | 256 KB at 0x20010000 |
 | DTCM | 128 KB | 64 KB | 64 KB |
-| MCUboot `CONFIG_BOOT_MAX_IMG_SECTORS` | 12 | 3 | 3 |
+| MCUboot `CONFIG_BOOT_MAX_IMG_SECTORS` | 3 | 3 | 3 |
 | FPU (`CPU_HAS_FPU_DOUBLE_PRECISION`) | y (FPv5-D16) | n (FPv5-SP-D16) | n |
 | `dfsdm` and `pdm0` to `pdm3` nodes | present, disabled | deleted | not on the F746 |
 | `sdmmc2` node | present, disabled | deleted | not on the F746 |
