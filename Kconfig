@@ -380,9 +380,16 @@ config LOG_PROCESS_THREAD_STACK_SIZE
 	depends on LOG_BACKEND_WS
 	default 2560
 
+# > eth_stm32_hal: Failed to obtain RX buffer
+# > esp32_wifi: Failed to allocate net buffer
+#
+# These messages can appear when sending bulk data to wallabmc if the TCP
+# window is too large (> 8192). It is possible other configuration parameters
+# should be used to avoid the problem, but we limit it here. The XIAO wifi
+# board can't even use 8192 and overrides that in its .conf
 config NET_TCP_MAX_RECV_WINDOW_SIZE
 	int
-	default 20480
+	default 8192
 
 # Increase retry and timeout limits
 config NET_TCP_INIT_RETRANSMISSION_TIMEOUT
