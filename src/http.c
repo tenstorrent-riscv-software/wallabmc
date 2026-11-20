@@ -9,6 +9,7 @@
  */
 
 #include <zephyr/kernel.h>
+#include <zephyr/net/socket.h>
 #include <zephyr/net/tls_credentials.h>
 #include <zephyr/net/http/server.h>
 #include <zephyr/net/http/service.h>
@@ -39,7 +40,8 @@ DEFINE_WEBSOCKET_SERVICE(http_service);
 /*
  * Plain HTTP doesn't serve anything, resources defined with
  * ALL_HTTP_RESOURCE_DEFINE() redirect to the same URL over HTTPS. The Host
- * header is used so the redirect keeps the name the client used for the BMC.
+ * header is used so the redirect keeps the name the client used for the BMC,
+ * otherwise the address the client connected to.
  */
 HTTP_SERVER_REGISTER_HEADER_CAPTURE(capture_host, "host");
 
@@ -64,10 +66,42 @@ BUILD_ASSERT(CONFIG_HTTP_SERVER_HTTP2_MAX_HEADER_FRAME_LEN >=
 	     HPACK_HEADER_MAX_LEN(sizeof(REDIRECT_CONTENT_TYPE) - 1),
 	     "HTTP_SERVER_HTTP2_MAX_HEADER_FRAME_LEN too small for the HTTPS redirect");
 
+/* Write the BMC's address on the client's connection to buf, as a URL host */
+static int local_address(struct http_client_ctx *client, char *buf, size_t len)
+{
+	struct net_sockaddr_storage addr;
+	net_socklen_t addr_len = sizeof(addr);
+	struct net_sockaddr *sa = (struct net_sockaddr *)&addr;
+	size_t n;
+
+	if (zsock_getsockname(client->fd, sa, &addr_len) < 0)
+		return -errno;
+
+	switch (addr.ss_family) {
+	case NET_AF_INET:
+		if (!net_addr_ntop(NET_AF_INET, &net_sin(sa)->sin_addr, buf, len))
+			return -EINVAL;
+		return 0;
+	case NET_AF_INET6:
+		/* An IPv6 literal is in brackets in a URL, leave room for them */
+		if (len < 3 ||
+		    !net_addr_ntop(NET_AF_INET6, &net_sin6(sa)->sin6_addr, buf + 1, len - 2))
+			return -EINVAL;
+		buf[0] = '[';
+		n = strlen(buf);
+		buf[n] = ']';
+		buf[n + 1] = '\0';
+		return 0;
+	default:
+		return -EAFNOSUPPORT;
+	}
+}
+
 static int https_redirect_location(struct http_client_ctx *client,
 				   const struct http_request_ctx *request_ctx,
 				   char *buf, size_t len)
 {
+	char addr[NET_INET6_ADDRSTRLEN + 2];
 	const char *host = NULL;
 	size_t host_len;
 	const char *p;
@@ -80,21 +114,37 @@ static int https_redirect_location(struct http_client_ctx *client,
 		}
 	}
 
-	if (!host || !host[0])
-		return -EINVAL;
+	if (host && host[0]) {
+		/*
+		 * Drop any port, so the redirect goes to the default HTTPS
+		 * port. That assumes https_service_port is 443.
+		 *
+		 * Don't drop the colons in an IPv6 literal ("[::1]:80").
+		 * IPv6 is currently disabled, but this avoids a broken
+		 * redirect if it's ever enabled.
+		 */
+		host_len = strlen(host);
+		p = strrchr(host, ':');
+		if (p && !strchr(p, ']'))
+			host_len = p - host;
+	} else {
+		/*
+		 * HTTP/1.0 clients may not send a Host, HTTP/2 clients send
+		 * :authority instead, and a Host longer than
+		 * HTTP_SERVER_MAX_HEADER_LEN - 1 isn't captured. Use the
+		 * address the client connected to.
+		 */
+		if (request_ctx->headers_status == HTTP_HEADER_STATUS_DROPPED)
+			LOG_WRN_ONCE("Host header dropped, longer than %d characters? "
+				     "Redirecting to the IP address",
+				     CONFIG_HTTP_SERVER_MAX_HEADER_LEN - 1);
 
-	/*
-	 * Drop any port, so the redirect goes to the default HTTPS port. That
-	 * assumes https_service_port is 443.
-	 *
-	 * Don't drop the colons in an IPv6 literal ("[::1]:80").
-	 * IPv6 is currently disabled, but this avoids a broken redirect if
-	 * it's ever enabled.
-	 */
-	host_len = strlen(host);
-	p = strrchr(host, ':');
-	if (p && !strchr(p, ']'))
-		host_len = p - host;
+		ret = local_address(client, addr, sizeof(addr));
+		if (ret)
+			return ret;
+		host = addr;
+		host_len = strlen(addr);
+	}
 
 	ret = snprintf(buf, len, "https://%.*s%s", (int)host_len, host,
 		       (const char *)client->url_buffer);
