@@ -105,8 +105,6 @@ config APP_CRYPTO_PUBLIC_KEY
 	# Plus CHACHA20
 	select PSA_WANT_ALG_CHACHA20_POLY1305
 	select PSA_WANT_KEY_TYPE_CHACHA20
-	# Required for websocket
-	select PSA_WANT_ALG_SHA_1 if HTTP_SERVER_WEBSOCKET
 
 # Use optimised routine for X25519 shared secrets. Zephyr 4.5 builds
 # and links the everest library but has no Kconfig option to turn it on.
@@ -317,9 +315,6 @@ config APP_WEB_TERMINAL
 	default y
 	select APP_WEB
 	select HTTP_SERVER_WEBSOCKET
-	# WS auth protocol requires these hashes
-	select BASE64
-	select MBEDTLS_SHA1
 
 config APP_WEB_TERMINAL_BMC_SHELL
 	bool "Zephyr shell websocket and webui terminal"
