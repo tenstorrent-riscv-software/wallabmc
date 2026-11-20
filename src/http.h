@@ -13,9 +13,17 @@ int app_http_server_init(void);
 struct http_request_ctx;
 int ws_validate_auth(int ws_socket, struct http_request_ctx *request_ctx, void *user_data);
 
-/* Define a resource on the HTTP (port 80) service */
+/*
+ * Define a resource on the HTTP (port 80) service.
+ *
+ * With CONFIG_APP_HTTP=n the HTTP service doesn't serve the resource.
+ */
+#if defined(CONFIG_APP_HTTP)
 #define HTTP_ONLY_RESOURCE_DEFINE(name, url, detail)					\
 HTTP_RESOURCE_DEFINE(name##_http, http_service, url, detail);
+#else
+#define HTTP_ONLY_RESOURCE_DEFINE(name, url, detail)
+#endif
 
 /* Define a resource on the HTTPS (port 443) service, if HTTPS is enabled */
 #if defined(CONFIG_APP_HTTPS)

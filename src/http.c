@@ -23,13 +23,18 @@ LOG_MODULE_REGISTER(wallabmc_http, LOG_LEVEL_INF);
 #include "http.h"
 #include "config.h"
 
+BUILD_ASSERT(IS_ENABLED(CONFIG_APP_HTTP) || IS_ENABLED(CONFIG_APP_HTTPS),
+	     "CONFIG_APP_HTTP=n requires CONFIG_APP_HTTPS");
+
 static uint16_t http_service_port = 80;
 HTTP_SERVICE_DEFINE(http_service, NULL, &http_service_port,
 		    3, 10, NULL, NULL, NULL);
 
+#if defined(CONFIG_APP_HTTP)
 #if defined(CONFIG_SHELL_BACKEND_WEBSOCKET)
 DEFINE_WEBSOCKET_SERVICE(http_service);
 #endif
+#endif /* defined(CONFIG_APP_HTTP) */
 
 #if defined(CONFIG_APP_HTTPS)
 
@@ -168,8 +173,8 @@ int ws_validate_auth(int ws_socket, struct http_request_ctx *request_ctx, void *
 	return 0;
 }
 
+#if defined(CONFIG_APP_HTTP)
 static int (*shell_http_ws_cb)(int ws_socket, struct http_request_ctx *request_ctx, void *user_data);
-static int (*shell_https_ws_cb)(int ws_socket, struct http_request_ctx *request_ctx, void *user_data);
 
 int shell_http_ws_auth_cb(int ws_socket, struct http_request_ctx *request_ctx, void *user_data)
 {
@@ -179,6 +184,9 @@ int shell_http_ws_auth_cb(int ws_socket, struct http_request_ctx *request_ctx, v
 
 	return shell_http_ws_cb(ws_socket, request_ctx, user_data);
 }
+#endif
+
+static int (*shell_https_ws_cb)(int ws_socket, struct http_request_ctx *request_ctx, void *user_data);
 
 int shell_https_ws_auth_cb(int ws_socket, struct http_request_ctx *request_ctx, void *user_data)
 {
@@ -198,11 +206,13 @@ int app_http_server_init(void)
 		return err;
 
 #if defined(CONFIG_SHELL_BACKEND_WEBSOCKET)
+#if defined(CONFIG_APP_HTTP)
 	shell_http_ws_cb = GET_WS_DETAIL_NAME(http_service).cb;
 	GET_WS_DETAIL_NAME(http_service).cb = shell_http_ws_auth_cb;
 	err = shell_websocket_enable(&GET_WS_SHELL_NAME(http_service));
 	if (err)
 		return err;
+#endif
 #if defined(CONFIG_APP_HTTPS)
 	shell_https_ws_cb = GET_WS_DETAIL_NAME(https_service).cb;
 	GET_WS_DETAIL_NAME(https_service).cb = shell_https_ws_auth_cb;
