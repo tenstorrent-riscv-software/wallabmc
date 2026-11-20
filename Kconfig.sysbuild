@@ -25,6 +25,8 @@ config BOOT_SIGNATURE_KEY_FILE
 config APP_USE_MCUBOOT
 	bool
 	default y if BOARD_XIAO_ESP32C6_ESP32C6_HPCORE
+	default y if BOARD_NUCLEO_F767ZI_STM32F767XX
+	default y if BOARD_NUCLEO_F767ZI_STM32F767XX_ATLANTIS
 
 # In theory using SWAP_SCRATCH mode should allow a confirm step that
 # auto downgrades the update if it does not reach confirm. I have not
