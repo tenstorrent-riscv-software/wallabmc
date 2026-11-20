@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Run Redfish API tests against a live device (or QEMU) using curl,
-# redfishtool and hurl. Each tool is checked before use, so a subset of
-# the tests still runs when some tools are not installed.
+# redfishtool and hurl. curl is required, redfishtool and hurl are checked
+# before use, so a subset of the tests still runs without them.
 #
 # By default only read-only tests run. Tests that change the board state
 # (power on/off/cycle) are skipped unless --all is given.
@@ -27,6 +27,7 @@ EOF
 }
 
 run_all=0
+have_https=1
 IP=""
 for arg in "$@"; do
 	case "$arg" in
@@ -40,12 +41,19 @@ IP="${IP:-192.168.1.110}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HURL_FILE="$SCRIPT_DIR/test.hurl"
+HURL_REDIRECT_FILE="$SCRIPT_DIR/test-redirect.hurl"
 
 # Prefer tools (redfishtool) from the scripts venv when it exists.
 # Install redfishtool there with: scripts/.venv/bin/pip install redfishtool
 VENV="$SCRIPT_DIR/.venv"
 if [ -d "$VENV/bin" ]; then
 	PATH="$VENV/bin:$PATH"
+fi
+
+# curl is used to probe which transports the target supports.
+if ! command -v curl >/dev/null 2>&1; then
+	echo "curl not installed" >&2
+	exit 1
 fi
 
 ran=0
@@ -67,7 +75,7 @@ have() {
 }
 
 run_curl_tests() {
-	have curl || return
+	local url=$1
 
 	# jq is only used to pretty-print; fall back to raw output without it.
 	local pp=cat
@@ -77,15 +85,15 @@ run_curl_tests() {
 		echo ">>> jq not installed, curl output will not be pretty-printed"
 	fi
 
-	echo ">>> curl tests"
+	echo ">>> curl tests $url"
 	for path in \
 		/redfish \
 		/redfish/ \
 		/redfish/v1 \
 		/redfish/v1/ \
 		/redfish/v1/Systems; do
-		echo "--- GET $path"
-		curl -Lsk "$IP$path" | "$pp"
+		echo "--- GET $url$path"
+		curl -Lsk "$url$path" | "$pp"
 	done
 	ran=$((ran + 1))
 }
@@ -94,16 +102,25 @@ run_curl_tests() {
 # is run with a global "-u admin:admin", which forces credentials onto
 # every request and defeats the point of the negative tests.
 run_auth_tests() {
-	have curl auth || return
-
 	echo ">>> auth rejection tests"
 
 	# An auth-required endpoint with no credentials must return 401 and
 	# advertise Basic auth via the WWW-Authenticate header.
-	local out code
-	out="$(curl -sk -D - -o /dev/null "$IP/redfish/v1/Managers")"
+	local out code location
+	location="http://$IP/redfish/v1/Managers"
+	out="$(curl -sk -D - -o /dev/null "$location")"
 	# Strip the trailing CR that terminates HTTP header lines.
 	code="$(printf '%s' "$out" | awk 'NR==1{print $2}' | tr -d '\r')"
+	if [ "$code" = 308 ]; then
+		location=$(printf '%s' "$out" | awk 'tolower($1) == "location:" {print $2}' | tr -d '\r')
+		if [ -z "$location" ]; then
+			fail "redirect but no Location?"
+		fi
+		out="$(curl -sk -D - -o /dev/null "$location")"
+		# Strip the trailing CR that terminates HTTP header lines.
+		code="$(printf '%s' "$out" | awk 'NR==1{print $2}' | tr -d '\r')"
+	fi
+
 	if [ "$code" = 401 ] && printf '%s' "$out" | grep -qi '^www-authenticate:[[:space:]]*Basic'; then
 		echo "PASS: no credentials -> 401 + WWW-Authenticate"
 	else
@@ -111,7 +128,7 @@ run_auth_tests() {
 	fi
 
 	# Wrong credentials must also be rejected with 401.
-	code="$(curl -sk -o /dev/null -w '%{http_code}' -u "$USER:wrongpassword" "$IP/redfish/v1/Managers")"
+	code="$(curl -sk -o /dev/null -w '%{http_code}' -u "$USER:wrongpassword" "$location")"
 	if [ "$code" = 401 ]; then
 		echo "PASS: wrong password -> 401"
 	else
@@ -162,28 +179,112 @@ run_redfishtool_tests() {
 
 run_hurl_tests() {
 	have hurl || return
+	local base=$1
 
-	echo ">>> hurl tests"
-	# test.hurl hardcodes 192.168.1.110; substitute the target IP into a
-	# temporary copy so a custom IP applies to the hurl tests too.
-	local file="$HURL_FILE"
-	local tmp=""
-	if [ "$IP" != "192.168.1.110" ]; then
-		tmp="$(mktemp)"
-		sed "s/192\.168\.1\.110/$IP/g" "$HURL_FILE" > "$tmp"
-		file="$tmp"
-	fi
-	hurl --insecure -u "$USER:$PASS" --pretty -v --test "$file"
-	local rc=$?
-	[ -n "$tmp" ] && rm -f "$tmp"
-	[ "$rc" -eq 0 ] || fail "hurl tests (exit $rc)"
+	echo ">>> hurl tests $base"
+	# --location-trusted follows the redirect to HTTPS (CONFIG_APP_HTTP=n)
+	# and resends the credentials, which curl otherwise drops when a
+	# redirect changes the scheme.
+	hurl --insecure --location-trusted -u "$USER:$PASS" --pretty -v \
+		--variable base="$base" --test "$HURL_FILE" ||
+		fail "hurl tests $base (exit $?)"
 	ran=$((ran + 1))
 }
 
-run_curl_tests
+# Checks the 308 itself, so run without following redirects.
+run_hurl_redirect_tests() {
+	have hurl "hurl redirect" || return
+
+	echo ">>> hurl redirect tests"
+	hurl --variable host="$IP" --variable user="$USER:$PASS" --pretty -v \
+		--test "$HURL_REDIRECT_FILE" ||
+		fail "hurl redirect tests (exit $?)"
+	ran=$((ran + 1))
+}
+
+# check_redirect <description> <expected Location> <curl args...>
+check_redirect() {
+	local desc=$1 want=$2 out
+	shift 2
+
+	out="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$@")"
+	if [ "$out" = "308 $want" ]; then
+		echo "PASS: $desc"
+	else
+		fail "$desc -> '$out', expected '308 $want'"
+	fi
+}
+
+# Redirect checks that need curl options hurl doesn't have, or a libcurl
+# with HTTP/2, which hurl's often isn't built with.
+run_curl_redirect_tests() {
+	local reset=/redfish/v1/Systems/system/Actions/ComputerSystem.Reset
+	local long_host long_url
+
+	long_host="$(printf 'h%.0s' {1..47})"
+	long_url="/redfish/v1?$(printf '~%.0s' {1..243})"
+
+	echo ">>> curl redirect tests"
+
+	# Without a Host the redirect goes to the address the client
+	# connected to
+	check_redirect "HTTP/1.0 without Host" "https://$IP/redfish/v1" \
+		--http1.0 -H "Host:" "http://$IP/redfish/v1"
+	check_redirect "HTTP/1.1 without Host" "https://$IP/redfish/v1" \
+		--http1.1 -H "Host:" "http://$IP/redfish/v1"
+
+	if curl -V | grep -q '^Features:.* HTTP2'; then
+		# HTTP/2 via an h2c upgrade
+		check_redirect "h2c upgrade /" "https://$IP/" --http2 "http://$IP/"
+		check_redirect "h2c upgrade /redfish/v1" "https://$IP/redfish/v1" \
+			--http2 "http://$IP/redfish/v1"
+		# HTTP/2 has :authority instead of Host
+		check_redirect "h2c prior knowledge" "https://$IP/redfish/v1" \
+			--http2-prior-knowledge "http://$IP/redfish/v1"
+		check_redirect "h2c upgrade POST $reset" "https://$IP$reset" \
+			--http2 -X POST -d '{}' "http://$IP$reset"
+		# The longest Location, a 47 character Host and a 255
+		# character URL. '~' isn't shortened by HPACK's Huffman
+		# coding, so this is the most space the Location can take.
+		check_redirect "h2c upgrade longest Location" \
+			"https://$long_host$long_url" \
+			--http2 -H "Host: $long_host" "http://$IP$long_url"
+	else
+		echo ">>> curl doesn't support HTTP/2, skipping HTTP/2 redirect tests"
+		skipped=$((skipped + 1))
+	fi
+	ran=$((ran + 1))
+}
+
+code="$(curl -sk -o /dev/null -w '%{http_code}' "https://$IP/redfish/v1")"
+if [ "$code" != 200 ]; then
+	have_https=0
+fi
+
+# Plain HTTP redirects to HTTPS when built with CONFIG_APP_HTTP=n.
+http_redirects=0
+code="$(curl -s -o /dev/null -w '%{http_code}' "http://$IP/redfish/v1")"
+if [ "$code" = 308 ]; then
+	http_redirects=1
+	[ "$have_https" -eq 1 ] || fail "HTTP redirects to HTTPS but HTTPS isn't working"
+fi
+
+run_curl_tests "http://$IP"
+if [ "$have_https" -eq 1 ]; then
+	run_curl_tests "https://$IP"
+fi
+
 run_auth_tests
 run_redfishtool_tests
-run_hurl_tests
+
+run_hurl_tests "http://$IP"
+if [ "$have_https" -eq 1 ]; then
+	run_hurl_tests "https://$IP"
+fi
+if [ "$http_redirects" -eq 1 ]; then
+	run_hurl_redirect_tests
+	run_curl_redirect_tests
+fi
 
 echo ">>> done: $ran test group(s) ran, $skipped skipped"
 if [ "$ran" -eq 0 ]; then
