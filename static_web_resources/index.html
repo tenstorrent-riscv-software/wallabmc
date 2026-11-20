@@ -210,7 +210,6 @@
 			text-transform: uppercase;
 		}
 
-
 		.data-value {
 			font-family: monospace;
 			font-size: 0.95rem;
@@ -304,6 +303,114 @@
 			gap: 15px;
 			margin-top: 15px;
 		}
+
+		/* Firmware Upload */
+		.fw-upload-row {
+			display: flex;
+			gap: 12px;
+			align-items: stretch;
+			flex-wrap: wrap;
+		}
+
+		.fw-dropzone {
+			flex: 1;
+			min-width: 240px;
+			display: flex;
+			align-items: center;
+			gap: 12px;
+			padding: 10px 14px;
+			border: 1.5px dashed var(--border);
+			border-radius: var(--radius);
+			background: var(--bg);
+			cursor: pointer;
+			transition: border-color 0.2s, background-color 0.2s;
+			box-sizing: border-box;
+		}
+
+		.fw-dropzone:hover,
+		.fw-dropzone.dragover {
+			border-color: var(--primary);
+			background: rgba(37, 99, 235, 0.06);
+		}
+
+		.fw-dropzone.has-file {
+			border-style: solid;
+			border-color: var(--primary);
+		}
+
+		.fw-dropzone-icon {
+			flex-shrink: 0;
+			color: var(--text-muted);
+			display: flex;
+			align-items: center;
+		}
+
+		.fw-dropzone.has-file .fw-dropzone-icon {
+			color: var(--primary);
+		}
+
+		.fw-dropzone-text {
+			flex: 1;
+			min-width: 0;
+			display: flex;
+			flex-direction: column;
+		}
+
+		.fw-filename {
+			font-size: 0.9rem;
+			font-weight: 500;
+			color: var(--text-main);
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+
+		.fw-subtext {
+			font-size: 0.78rem;
+			color: var(--text-muted);
+		}
+
+		.fw-clear-btn {
+			width: 24px;
+			height: 24px;
+			padding: 0;
+			border-radius: 50%;
+			background: transparent;
+			color: var(--text-muted);
+			font-size: 1rem;
+			line-height: 1;
+			flex-shrink: 0;
+		}
+
+		.fw-clear-btn:hover {
+			background: var(--border);
+			color: var(--text-main);
+		}
+
+		#bmc-fw-upload-btn {
+			width: auto;
+			height: auto;
+			min-height: var(--input-height);
+			white-space: nowrap;
+			padding: 0 20px;
+		}
+
+		#bmc-fw-upload-btn:disabled {
+			opacity: 0.5;
+			cursor: not-allowed;
+		}
+
+		.fw-status {
+			margin-top: 10px;
+			font-size: 0.875rem;
+			font-weight: 500;
+			color: var(--text-main);
+		}
+
+		.fw-status.success { color: #16a34a; }
+		.fw-status.error   { color: var(--danger); }
+		body.dark-mode .fw-status.success { color: #4ade80; }
+		body.dark-mode .fw-status.error   { color: #f87171; }
 
 		/* Login Specifics */
 		.login-form {
@@ -638,6 +745,28 @@
 									<span class="data-value" id="bmc-zephyr-version">Loading...</span>
 								</div>
 							</div>
+							<div id="bmc-firmware-section" class="hidden">
+								<h3>Firmware</h3>
+								<div class="fw-upload-row">
+									<input type="file" id="bmc-fw-file" accept=".signed.bin" class="hidden">
+									<div class="fw-dropzone" id="bmc-fw-dropzone" tabindex="0" role="button" aria-label="Select BMC firmware file">
+										<span class="fw-dropzone-icon" aria-hidden="true">
+											<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+												<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+												<polyline points="17 8 12 3 7 8"/>
+												<line x1="12" y1="3" x2="12" y2="15"/>
+											</svg>
+										</span>
+										<div class="fw-dropzone-text">
+											<span class="fw-filename" id="bmc-fw-filename">Choose a firmware file or drag it here</span>
+											<span class="fw-subtext" id="bmc-fw-subtext">Accepts .signed.bin</span>
+										</div>
+										<button type="button" class="fw-clear-btn hidden" id="bmc-fw-clear" title="Clear selection">&times;</button>
+									</div>
+									<button class="danger" onclick="uploadFirmware()" id="bmc-fw-upload-btn" disabled>Upload and update</button>
+								</div>
+								<div id="bmc-fw-upload-status" class="fw-status" role="status" aria-live="polite"></div>
+							</div>
 							<h3>Reset</h3>
 							<div class="controls-grid">
 								<button class="danger" onclick="resetBmc()">Reset BMC</button>
@@ -913,6 +1042,33 @@
 			return call;
 		}
 
+		// URI to POST firmware images to, from UpdateService.HttpPushUri,
+		// or null if the BMC has no update service.
+		let firmwarePushUri = null;
+
+		function checkFirmwareUploadAvailable() {
+			const call = redfishQueue.then(async () => {
+				try {
+					const response = await fetch('/redfish/v1/UpdateService', {
+						method: 'GET',
+						headers: {
+							'authorization': basicAuthHeader,
+							'x-auth-code': 'webui',
+						},
+					});
+					if (!response.ok) {
+						return null;
+					}
+					const data = await response.json();
+					return typeof data.HttpPushUri === 'string' ? data.HttpPushUri : null;
+				} catch {
+					return null;
+				}
+			});
+			redfishQueue = call.catch(() => {});
+			return call;
+		}
+
 		async function redfishRequest(path, method, body) {
 			setLoading(true);
 			try {
@@ -1046,6 +1202,13 @@
 					console.log("No BMC temperature sensor found.");
 				}
 
+				firmwarePushUri = await checkFirmwareUploadAvailable();
+				if (firmwarePushUri) {
+					show('bmc-firmware-section');
+				} else {
+					hide('bmc-firmware-section');
+				}
+
 				hide('login-section');
 				show('dashboard-section');
 
@@ -1072,6 +1235,9 @@
 			closeTerminal(false);
 
 			document.getElementById('sidebar-sensors').classList.add('hidden');
+			hide('bmc-firmware-section');
+			firmwarePushUri = null;
+			resetFirmwareUploadUI(true);
 			showSection('system-overview');
 
 			basicAuthHeader = null;
@@ -1575,6 +1741,157 @@
 				scheduleRefresh(3000);
 			} catch (err) {
 				alert(`Failed: ${err.message}`);
+			}
+		}
+
+		function formatFileSize(bytes) {
+			if (bytes < 1024) return `${bytes} B`;
+			if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+			return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+		}
+
+		let firmwareUploading = false;
+
+		function updateFirmwareFileUI(file) {
+			const dropzone = document.getElementById('bmc-fw-dropzone');
+			const nameEl = document.getElementById('bmc-fw-filename');
+			const subEl = document.getElementById('bmc-fw-subtext');
+			const clearBtn = document.getElementById('bmc-fw-clear');
+			const uploadBtn = document.getElementById('bmc-fw-upload-btn');
+
+			if (file) {
+				dropzone.classList.add('has-file');
+				nameEl.innerText = file.name;
+				subEl.innerText = formatFileSize(file.size);
+				clearBtn.classList.remove('hidden');
+				uploadBtn.disabled = firmwareUploading;
+			} else {
+				dropzone.classList.remove('has-file');
+				nameEl.innerText = 'Choose a firmware file or drag it here';
+				subEl.innerText = 'Accepts .signed.bin';
+				clearBtn.classList.add('hidden');
+				uploadBtn.disabled = true;
+			}
+		}
+
+		function resetFirmwareUploadUI(clearStatus = false) {
+			document.getElementById('bmc-fw-file').value = '';
+			updateFirmwareFileUI(null);
+			if (clearStatus) {
+				const statusDiv = document.getElementById('bmc-fw-upload-status');
+				statusDiv.className = 'fw-status';
+				statusDiv.innerText = '';
+			}
+		}
+
+		(function initFirmwareDropzone() {
+			const fileInput = document.getElementById('bmc-fw-file');
+			const dropzone = document.getElementById('bmc-fw-dropzone');
+			const clearBtn = document.getElementById('bmc-fw-clear');
+
+			dropzone.addEventListener('click', (e) => {
+				if (firmwareUploading) return;
+				if (e.target !== clearBtn) fileInput.click();
+			});
+
+			dropzone.addEventListener('keydown', (e) => {
+				if (firmwareUploading) return;
+				if (e.target === dropzone && (e.key === 'Enter' || e.key === ' ')) {
+					e.preventDefault();
+					fileInput.click();
+				}
+			});
+
+			clearBtn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				if (firmwareUploading) return;
+				resetFirmwareUploadUI(false);
+			});
+
+			fileInput.addEventListener('change', () => {
+				updateFirmwareFileUI(fileInput.files[0] || null);
+			});
+
+			dropzone.addEventListener('dragover', (e) => {
+				e.preventDefault();
+				dropzone.classList.add('dragover');
+			});
+
+			dropzone.addEventListener('dragleave', () => {
+				dropzone.classList.remove('dragover');
+			});
+
+			dropzone.addEventListener('drop', (e) => {
+				e.preventDefault();
+				dropzone.classList.remove('dragover');
+				if (firmwareUploading) return;
+				const file = e.dataTransfer.files[0];
+				if (!file) return;
+				const dt = new DataTransfer();
+				dt.items.add(file);
+				fileInput.files = dt.files;
+				updateFirmwareFileUI(file);
+			});
+		})();
+
+		async function uploadFirmware() {
+			if (firmwareUploading) return;
+
+			const fileInput = document.getElementById('bmc-fw-file');
+			const statusDiv = document.getElementById('bmc-fw-upload-status');
+			const btn = document.getElementById('bmc-fw-upload-btn');
+
+			if (!firmwarePushUri) {
+				return;
+			}
+
+			if (!fileInput.files || fileInput.files.length === 0) {
+				alert("Please select a firmware file first.");
+				return;
+			}
+
+			const file = fileInput.files[0];
+			if (!confirm(`Upload and update firmware ${file.name}?`)) {
+				return;
+			}
+
+			try {
+				firmwareUploading = true;
+				btn.disabled = true;
+				setLoading(true);
+				statusDiv.className = 'fw-status';
+				statusDiv.innerText = 'Uploading... Please keep this page open.';
+
+				// Use the browser's native fetch to handle the stream
+				const upload = redfishQueue.then(() => fetch(firmwarePushUri, {
+					method: 'POST',
+					headers: {
+						'authorization': basicAuthHeader,
+						'x-auth-code': 'webui',
+						'content-type': 'application/octet-stream',
+					},
+					body: file
+				}));
+				redfishQueue = upload.catch(() => {});
+				const response = await upload;
+
+				if (!response.ok) {
+					if (response.status === 401) {
+						throw new Error("Authentication Failed");
+					}
+					throw new Error(`Upload failed with status: ${response.status}`);
+				}
+
+				statusDiv.className = 'fw-status success';
+				statusDiv.innerText = 'Firmware uploaded. Update will take effect on reboot.';
+			} catch (err) {
+				console.error(err);
+				statusDiv.className = 'fw-status error';
+				statusDiv.innerText = `Error: ${err.message}`;
+			} finally {
+				firmwareUploading = false;
+				setLoading(false);
+				resetFirmwareUploadUI(false);
 			}
 		}
 
