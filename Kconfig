@@ -184,11 +184,24 @@ config APP_HTTP
 	  on port 80. Credentials (HTTP Basic auth, websocket auth) are sent
 	  in the clear over this port.
 
-	  If disabled, port 80 still accepts connections but doesn't serve
-	  the web UI, Redfish or the websocket consoles.
+	  If disabled, port 80 still accepts connections but redirects
+	  requests for the web UI and Redfish to the same URL over HTTPS.
+	  Websocket consoles aren't available over plain HTTP.
 
 	  Can only be disabled if APP_HTTPS is enabled. Defaults to disabled
 	  if APP_HTTPS is enabled, otherwise it's always enabled.
+
+# Room for the captured Authorization, X-Auth-Code and Host headers at
+# HTTP_SERVER_MAX_HEADER_LEN.
+config HTTP_SERVER_CAPTURE_HEADER_BUFFER_SIZE
+	int
+	default 192
+
+# Room for the redirect to HTTPS over HTTP/2, with the longest Location.
+# Checked by a BUILD_ASSERT in http.c.
+config HTTP_SERVER_HTTP2_MAX_HEADER_FRAME_LEN
+	int
+	default 352 if !APP_HTTP
 
 config APP_HTTPS
 	bool "HTTPS support for web and redfish"

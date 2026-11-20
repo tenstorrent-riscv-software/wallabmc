@@ -80,7 +80,7 @@ This can be overidden by runtime configuration.
 
 `CONFIG_APP_HTTP` - Serve the web UI, Redfish and websocket consoles over plain HTTP on
 port 80. Credentials are sent unencrypted over HTTP. Disabled by default when
-`CONFIG_APP_HTTPS` is enabled.
+`CONFIG_APP_HTTPS` is enabled, in which case port 80 redirects to HTTPS instead.
 
 ### Building
 
