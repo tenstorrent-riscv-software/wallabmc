@@ -168,12 +168,12 @@ config NET_SOCKETS_TLS_MAX_CONTEXTS
 config MBEDTLS_SSL_IN_CONTENT_LEN
 	int
 	depends on APP_CRYPTO
-	default 4096
+	default 16384
 
 config MBEDTLS_SSL_OUT_CONTENT_LEN
 	int
 	depends on APP_CRYPTO
-	default 4096
+	default 2048
 
 config APP_HTTP
 	bool "Serve web and redfish over plain HTTP" if APP_HTTPS
