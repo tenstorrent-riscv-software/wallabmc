@@ -197,6 +197,12 @@ config HTTP_SERVER_CAPTURE_HEADER_BUFFER_SIZE
 	int
 	default 192
 
+# Multiple streams can concurrently access a reqource and require
+# special handling which we don't do.
+config HTTP_SERVER_MAX_STREAMS
+	int
+	default 1
+
 # Room for the redirect to HTTPS over HTTP/2, with the longest Location.
 # Checked by a BUILD_ASSERT in http.c.
 config HTTP_SERVER_HTTP2_MAX_HEADER_FRAME_LEN
