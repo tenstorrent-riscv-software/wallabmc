@@ -11,6 +11,8 @@ LOG_MODULE_REGISTER(wallabmc_net, LOG_LEVEL_INF);
 #include <zephyr/linker/sections.h>
 #include <errno.h>
 #include <stdio.h>
+#include <ctype.h>
+#include <string.h>
 
 #include <zephyr/net/net_config.h>
 #include <zephyr/net/net_if.h>
@@ -24,6 +26,25 @@ LOG_MODULE_REGISTER(wallabmc_net, LOG_LEVEL_INF);
 #include "config.h"
 #include "ntp.h"
 #include "wifi.h"
+
+/* RFC 1123 label: letters, digits and '-', not starting or ending with '-' */
+static bool dns_label_valid(const char *s, size_t len)
+{
+	if (len < 1 || len > 63 || s[0] == '-' || s[len - 1] == '-')
+		return false;
+
+	for (size_t i = 0; i < len; i++) {
+		if (!isalnum((unsigned char)s[i]) && s[i] != '-')
+			return false;
+	}
+
+	return true;
+}
+
+bool net_hostname_valid(const char *hostname)
+{
+	return dns_label_valid(hostname, strlen(hostname));
+}
 
 int net_do_set_hostname(const char *hostname)
 {
