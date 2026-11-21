@@ -154,6 +154,30 @@ the board specific documentation. In general though, boards tend to:
   connection.  See board specific documentation for details about how to use
   JTAG, console, flash, etc.
 
+### Online firmware updates
+
+WallaBMC supports online firmware updates (via the application rather than
+openocd/jtag) by uploading new firmware to flash slot1 partition and using
+mcuboot to switch to it on the next reboot.
+
+This requires supported board and a sysbuild build with mcuboot firmware
+and the first wallabmc flashed using ``west flash`` or similar. Then
+``build/wallabmc/zephyr/zephyr.signed.bin`` images can be uploaded via the
+webui or redfish.
+
+If the flash partition scheme or mcuboot options change, a full ``west flash``
+must be used.
+
+MCUboot only installs an image signed with the key it was built with. Build
+with your own key (see [Firmware image signing](#firmware-image-signing)) so
+that later builds can be uploaded. With a generated key, only images from the
+same build directory are accepted.
+
+Firmware updates can be initiated via the Web UI, or by uploading directly to
+the redfish endpoint.
+
+``curl -k -u admin:password --data-binary @wallabmc.signed.bin  https://<addr>/redfish/v1/UpdateService/upload``
+
 ### BMC shell
 
 Most MCUs provide serial consoles via USB serial and via the Web UI. The Zephyr
