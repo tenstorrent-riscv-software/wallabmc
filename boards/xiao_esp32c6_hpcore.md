@@ -11,8 +11,9 @@ remain free for other uses.
 ### Building
 
 The XIAO can use Espressif's built-in Simple Boot directly, or MCUboot.
-To build mcuboot, pass the ``--sysbuild`` argument to the build step.
-This requires mcuboot is flashed as well as wallabmc.
+MCUboot builds permit over-the-air firmware updates of wallabmc. To
+build mcuboot, pass the ``--sysbuild`` argument to the build step. This
+requires mcuboot is flashed as well as wallabmc.
 
 Plug the XIAO into your build host over USB-C — the same USB cable provides
 power, flashes the firmware, and carries the BMC console.
@@ -45,6 +46,9 @@ esptool write-flash 0 build/zephyr/zephyr.bin
 esptool write-flash 0 build/mcuboot/zephyr/zephyr.bin
 esptool write-flash 0x20000 build/wallabmc/zephyr/zephyr.signed.bin
 ```
+
+xiao also supports online updates via the WallaBMC web interface redfish
+firmware upload.
 
 ### Running
 
