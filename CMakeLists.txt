@@ -7,15 +7,19 @@ cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(wallabmc)
 
-# Boards that use their SoC's native bootloader and skip mcuboot/sysbuild.
-set(NO_SYSBUILD_BOARDS "qemu_cortex_m3" "xiao_esp32c6")
+# QEMU has not been ported to mcuboot/sysbuild.
+set(NO_SYSBUILD_BOARDS "qemu_cortex_m3")
+# Boards that can use their SoC's native bootloader or mcuboot. The others
+# need mcuboot: the flash layouts for the STM32 boards have wallabmc after
+# the bootloader.
+set(OPTIONAL_SYSBUILD_BOARDS "xiao_esp32c6")
 if(BOARD IN_LIST NO_SYSBUILD_BOARDS)
 	if(SYSBUILD)
 		message(FATAL_ERROR "${BOARD} must NOT be built with sysbuild (e.g., no --sysbuild argument)")
 	endif()
-else()
+elseif(NOT BOARD IN_LIST OPTIONAL_SYSBUILD_BOARDS)
 	if(NOT SYSBUILD)
-		message(FATAL_ERROR "Hardware boards must be built with sysbuild (e.g., --sysbuild argument)")
+		message(FATAL_ERROR "${BOARD} must be built with sysbuild (e.g., --sysbuild argument)")
 	endif()
 endif()
 

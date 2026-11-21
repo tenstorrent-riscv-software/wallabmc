@@ -27,3 +27,10 @@ if(SB_CONFIG_BOOTLOADER_MCUBOOT AND key_in_build_dir AND
     "Images from this build only boot with the bootloader from this build. "
     "Set SB_CONFIG_BOOT_SIGNATURE_KEY_FILE to use your own key.")
 endif()
+
+# The XIAO can be built without MCUboot, so what it needs only for firmware
+# updates is kept in a separate file.
+if(SB_CONFIG_BOOTLOADER_MCUBOOT AND BOARD STREQUAL "xiao_esp32c6")
+  set(${DEFAULT_IMAGE}_EXTRA_CONF_FILE
+    "${APP_DIR}/boards/xiao_esp32c6_hpcore_mcuboot.conf" CACHE INTERNAL "")
+endif()

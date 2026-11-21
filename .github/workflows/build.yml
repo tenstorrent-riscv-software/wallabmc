@@ -129,8 +129,8 @@ jobs:
         working-directory: workspace
         shell: bash
         run: |
-          # qemu_cortex_m3 and xiao_esp32c6 are listed in NO_SYSBUILD_BOARDS;
-          # xiao uses Espressif Simple Boot rather than MCUboot.
+          # qemu_cortex_m3 has no MCUboot port. xiao can be built with
+          # MCUboot, but is built here for Espressif Simple Boot.
           west build -p always -b "$BOARD" ../wallabmc 2>&1 | tee build.log
           for report in rom_report ram_report; do
             west build -t $report > $report.log 2>&1 || {
