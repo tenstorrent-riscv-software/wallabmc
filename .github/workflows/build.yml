@@ -33,6 +33,8 @@ jobs:
         include:
           - board: nucleo_f767zi
             name: nucleo_f767zi
+          - board: nucleo_f756zg
+            name: nucleo_f756zg
           - board: hifive_premier_p550_mcu
             name: hifive_premier_p550_mcu
           - board: qemu_cortex_m3
