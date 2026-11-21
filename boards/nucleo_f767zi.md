@@ -33,3 +33,6 @@ Alternatively, use the `build/wallabmc/zephyr/zephyr.signed.hex` and
 flash write_image erase build/mcuboot/zephyr/zephyr.hex
 flash write_image erase build/wallabmc/zephyr/zephyr.signed.hex
 ```
+
+Nucleo also supports online updates via the WallaBMC web interface redfish
+firmware upload.

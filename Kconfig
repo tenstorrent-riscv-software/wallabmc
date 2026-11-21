@@ -50,6 +50,24 @@ config APP_BLOCKING_WORKQUEUE_STACK_SIZE
 
 endif
 
+config APP_SUPPORTS_MCUBOOT_UPDATE
+	bool "Board supports mcuboot and DFU updates"
+	help
+	  Board .conf files can select this if they support mcuboot and
+	  OTA wallabmc firmware updates (DFU).
+
+config APP_MCUBOOT_UPDATE
+	bool "Support mcuboot flash updates"
+	default y
+	depends on BOOTLOADER_MCUBOOT
+	depends on APP_SUPPORTS_MCUBOOT_UPDATE
+	select FLASH
+	select IMG_MANAGER
+	select FLASH_MAP
+	select STREAM_FLASH
+	select STREAM_FLASH_ERASE
+	select IMG_ERASE_PROGRESSIVELY
+
 config APP_NTP
 	bool "NTP time synchronisation"
 	select SNTP
@@ -178,12 +196,12 @@ config NET_SOCKETS_TLS_MAX_CONTEXTS
 config MBEDTLS_SSL_IN_CONTENT_LEN
 	int
 	depends on APP_CRYPTO
-	default 4096
+	default 16384
 
 config MBEDTLS_SSL_OUT_CONTENT_LEN
 	int
 	depends on APP_CRYPTO
-	default 4096
+	default 2048
 
 config APP_HTTP
 	bool "Serve web and redfish over plain HTTP" if APP_HTTPS
@@ -205,7 +223,17 @@ config APP_HTTP
 # HTTP_SERVER_MAX_HEADER_LEN.
 config HTTP_SERVER_CAPTURE_HEADER_BUFFER_SIZE
 	int
-	default 192
+	default 256
+
+config HTTP_SERVER_CAPTURE_HEADER_COUNT
+	int
+	default 4
+
+# Multiple streams can concurrently access a reqource and require
+# special handling which we don't do.
+config HTTP_SERVER_MAX_STREAMS
+	int
+	default 1
 
 # Room for the redirect to HTTPS over HTTP/2, with the longest Location.
 # Checked by a BUILD_ASSERT in http.c.
@@ -368,9 +396,15 @@ config LOG_PROCESS_THREAD_STACK_SIZE
 	depends on LOG_BACKEND_WS
 	default 2560
 
+# > eth_stm32_hal: Failed to obtain RX buffer
+# > esp32_wifi: Failed to allocate net buffer
+#
+# These messages can appear when sending bulk data to wallabmc if the TCP
+# window is too large (8192). It is possible other configuration parameters
+# should be used to avoid the problem, but we limit it here.
 config NET_TCP_MAX_RECV_WINDOW_SIZE
 	int
-	default 20480
+	default 4096
 
 # Increase retry and timeout limits
 config NET_TCP_INIT_RETRANSMISSION_TIMEOUT
