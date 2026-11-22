@@ -24,12 +24,10 @@ As for the Nucleo F767ZI. The flash layout differs from the plain
 `nucleo_f767zi` build, so when changing between the two flash both MCUboot
 and WallaBMC.
 
-Do not expect the stored settings to carry over. The variant keeps them in
-sectors 2 and 3 (0x10000 to 0x1ffff) and the plain build in sectors 1 to 3
-(0x8000 to 0x1ffff). Flashing does not erase the sectors the two share, so
-the other build's settings may be lost, or old ones may come back. For a
-clean setup run `config clear_and_reboot` in the BMC shell after changing
-builds.
+Do not expect the stored settings to carry over between board variants.
+
+For a clean setup run `config clear_and_reboot` in the BMC shell after changing
+builds. Or bulk erase the entire flash with openocd.
 
 ### What is limited to match the STM32F746ZG
 
@@ -50,36 +48,6 @@ builds.
 `CONFIG_FPU` is off in WallaBMC, so the FPU type changes nothing today. It
 stops a later FPU enable from generating double-precision instructions that
 the F746 does not have.
-
-### Flash layout
-
-The first 1 MB of the STM32F767 flash in single-bank mode has the same
-sectors as the STM32F746 (4 x 32 KB, 1 x 128 KB, 3 x 256 KB), so the
-Atlantis partitions sit on identical sectors.
-
-| Sector (size) | Offset | nucleo_f767zi | atlantis variant and Atlantis |
-| --- | --- | --- | --- |
-| 0 (32 KB) | 0x00000 | MCUboot | MCUboot |
-| 1 (32 KB) | 0x08000 | storage (NVS) | MCUboot |
-| 2-3 (2 x 32 KB) | 0x10000 | storage (NVS) | storage (NVS) |
-| 4 (128 KB) | 0x20000 | application | unused |
-| 5-7 (3 x 256 KB) | 0x40000 | application | application |
-| 8 (256 KB) | 0x100000 | application | does not exist |
-| 9-11 (3 x 256 KB) | 0x140000 | unused | does not exist |
-| **Application slot** | | **1024 KB at 0x20000** | **768 KB at 0x40000** |
-
-#### Sector 4 is unused on Atlantis
-
-The Atlantis layout leaves the 128 KB sector 4 unallocated, and there is no
-technical reason for it. The table was copied from Zephyr's ST Nucleo F7
-boards, which keep sector 4 spare because their MCUboot swap slots have to be
-built from equal 256 KB sectors. WallaBMC uses MCUboot's single-application
-mode, so the Atlantis slot could start at 0x20000 and be 896 KB instead of
-768 KB, on a part where flash is the tightest resource. MCUboot uses under
-half of its 64 KB partition too (about 30 KB).
-
-Nothing has been changed yet. If the Atlantis layout is changed, change this
-variant in the same commit (see below).
 
 ### What cannot be limited
 
