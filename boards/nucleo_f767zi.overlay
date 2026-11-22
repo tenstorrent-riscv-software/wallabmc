@@ -2,35 +2,21 @@
 
 #include "nucleo_f767zi_wallabmc.dtsi"
 
-/delete-node/ &boot_partition;
-/delete-node/ &storage_partition;
-/delete-node/ &slot0_partition;
-/delete-node/ &slot1_partition;
-/delete-node/ &scratch_partition;
+/*
+ * Zephyr's flash layout for the board, with a smaller MCUboot partition
+ * and the space that frees given to settings storage. The two image slots
+ * (3*256 kbytes each, at 0x40000 and 0x100000) are as Zephyr has them.
+ */
 
-&flash0 {
-    partitions {
-        #address-cells = <1>;
-        #size-cells = <1>;
-        ranges;
+/* Sector 0 (32 kbytes) for mcuboot */
+&boot_partition {
+    reg = <0x00000000 DT_SIZE_K(32)>;
+};
 
-        boot_partition: partition@0 {
-            compatible = "zephyr,mapped-partition";
-            label = "mcuboot";
-            reg = <0x00000000 DT_SIZE_K(32)>;
-        };
-
-        /* 3*32KB, enough for NVS storage */
-        storage_partition: partition@8000 {
-            compatible = "zephyr,mapped-partition";
-            label = "storage";
-            reg = <0x00008000 DT_SIZE_K(96)>;
-        };
-
-        slot0_partition: partition@20000 {
-            compatible = "zephyr,mapped-partition";
-            label = "image-0";
-            reg = <0x00020000 DT_SIZE_K(1024)>;
-        };
-    };
+/*
+ * Sectors 1-3 (3*32 kbytes) for NVS storage. The node keeps the name
+ * Zephyr gave it, so it shows up as partition@10000 in zephyr.dts.
+ */
+&storage_partition {
+    reg = <0x00008000 DT_SIZE_K(96)>;
 };

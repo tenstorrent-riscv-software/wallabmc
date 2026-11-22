@@ -20,9 +20,9 @@ west build -p --sysbuild -b nucleo_f767zi/stm32f767xx/atlantis
 
 ### Flashing
 
-As for the Nucleo F767ZI. The flash layout differs from the plain
-`nucleo_f767zi` build, so when changing between the two flash both MCUboot
-and WallaBMC.
+As for the Nucleo F767ZI. The application is in the same place as in the
+plain `nucleo_f767zi` build, but MCUboot is built for a different layout, so
+when changing between the two flash both MCUboot and WallaBMC.
 
 Do not expect the stored settings to carry over. The variant keeps them in
 sectors 2 and 3 (0x10000 to 0x1ffff) and the plain build in sectors 1 to 3
@@ -62,11 +62,16 @@ Atlantis partitions sit on identical sectors.
 | 0 (32 KB) | 0x00000 | MCUboot | MCUboot |
 | 1 (32 KB) | 0x08000 | storage (NVS) | MCUboot |
 | 2-3 (2 x 32 KB) | 0x10000 | storage (NVS) | storage (NVS) |
-| 4 (128 KB) | 0x20000 | application | unused |
+| 4 (128 KB) | 0x20000 | unused | unused |
 | 5-7 (3 x 256 KB) | 0x40000 | application | application |
-| 8 (256 KB) | 0x100000 | application | does not exist |
-| 9-11 (3 x 256 KB) | 0x140000 | unused | does not exist |
-| **Application slot** | | **1024 KB at 0x20000** | **768 KB at 0x40000** |
+| 8-10 (3 x 256 KB) | 0x100000 | second slot | does not exist |
+| 11 (256 KB) | 0x1c0000 | scratch (unused) | does not exist |
+| **Application slot** | | **768 KB at 0x40000** | **768 KB at 0x40000** |
+
+Both builds take their partitions from Zephyr's `nucleo_f767zi.dts`. The
+plain build changes the size of the first two in
+`boards/nucleo_f767zi.overlay`. The variant uses them as they are, because
+the Atlantis layout was copied from the same file.
 
 #### Sector 4 is unused on Atlantis
 
@@ -114,7 +119,7 @@ Where things are defined:
 | What | Atlantis | atlantis variant |
 | --- | --- | --- |
 | SoC memory sizes and peripherals | Zephyr `stm32f746Xg.dtsi` via `boards/tenstorrent/common/atlantis_mcu.dtsi` | `boards/st/nucleo_f767zi/nucleo_f767zi_atlantis.dts` |
-| Flash partitions | `boards/tenstorrent/common/atlantis_wallabmc.dtsi` | `boards/nucleo_f767zi_atlantis.overlay` |
+| Flash partitions | `boards/tenstorrent/common/atlantis_wallabmc.dtsi` | Zephyr `nucleo_f767zi.dts`, less the two deleted in `boards/st/nucleo_f767zi/nucleo_f767zi_atlantis.dts` |
 | WallaBMC Kconfig | `boards/atlantis_slt_mcu.conf`, `boards/atlantis_evb_mcu.conf` | `boards/nucleo_f767zi_atlantis.conf` |
 | MCUboot Kconfig | `sysbuild/mcuboot/boards/atlantis_*_mcu.conf` | `sysbuild/mcuboot/boards/nucleo_f767zi_atlantis.conf` |
 | Nucleo pins, aliases, JTAG | | `boards/nucleo_f767zi_wallabmc.dtsi`, shared with the plain Nucleo |
@@ -122,7 +127,8 @@ Where things are defined:
 Rules:
 
 1. When the flash partitions change in `atlantis_wallabmc.dtsi`, make the
-   same change in `nucleo_f767zi_atlantis.overlay`, and update
+   same change in `nucleo_f767zi_atlantis.overlay`, which has no partition
+   changes while the two layouts are the same, and update
    `CONFIG_BOOT_MAX_IMG_SECTORS` in both MCUboot `.conf` files if the number
    of sectors in the application slot changes. Update the flash layout table
    above.
@@ -133,7 +139,8 @@ Rules:
    need copying.
 3. When a change is made for the Nucleo itself (pins, aliases, a new
    peripheral), put it in `nucleo_f767zi_wallabmc.dtsi` so that both Nucleo
-   builds get it. Only partitions belong in the two `.overlay` files.
+   builds get it. Only partition changes belong in the two `.overlay`
+   files.
 4. A variant does not inherit `nucleo_f767zi_defconfig`,
    `boards/nucleo_f767zi.conf` or `boards/nucleo_f767zi.overlay`. Zephyr only
    reads files named for the variant. `nucleo_f767zi_atlantis_defconfig` is a
