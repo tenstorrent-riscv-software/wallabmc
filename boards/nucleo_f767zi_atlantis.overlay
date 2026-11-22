@@ -4,8 +4,11 @@
 
 /*
  * Use the Atlantis flash layout rather than the Nucleo one. Keep this the
- * same as boards/tenstorrent/common/atlantis_wallabmc.dtsi; see
- * boards/nucleo_f767zi_atlantis.md.
+ * same as boards/tenstorrent/common/atlantis_wallabmc.dtsi.
+ *
+ * The internal flash layout happens to match Nucleo at the moment, but define
+ * it here so it can be easily adjusted. slot1 and scratch partitions are not
+ * defined as they are for standard nucleo board since we have less flash.
  */
 /delete-node/ &boot_partition;
 /delete-node/ &storage_partition;
@@ -13,7 +16,7 @@
 
 &flash0 {
     partitions {
-        /* Sectors 0-1 (2*32 kbytes) for mcuboot */
+        /* Sector 0-1 (2*32 kbytes) for mcuboot */
         boot_partition: partition@0 {
             compatible = "zephyr,mapped-partition";
             label = "mcuboot";
