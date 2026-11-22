@@ -7,7 +7,10 @@
 # MCUboot checks an elliptic curve signature on the application.
 # BOOT_SIGNATURE_TYPE_ED25519 is supported as well. It is quicker to check,
 # but makes MCUboot too big for a 32 KiB boot partition.
+# P550 has tiny amount of flash/sram, can't fit boot signatures, it does
+# not support OTA updates so signatures are less critical.
 choice BOOT_SIGNATURE_TYPE
+	default BOOT_SIGNATURE_TYPE_NONE if BOARD_HIFIVE_PREMIER_P550_MCU
 	default BOOT_SIGNATURE_TYPE_ECDSA_P256
 endchoice
 
