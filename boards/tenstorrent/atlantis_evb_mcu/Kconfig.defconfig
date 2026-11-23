@@ -1,0 +1,11 @@
+# atlantis_evb_mcu board configuration
+
+# SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_ATLANTIS_EVB_MCU
+
+configdefault ETH_DRIVER
+	default y
+
+endif # BOARD_ATLANTIS_EVB_MCU

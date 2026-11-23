@@ -1,0 +1,5 @@
+# SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_ATLANTIS_EVB_MCU
+	select SOC_STM32F746XX

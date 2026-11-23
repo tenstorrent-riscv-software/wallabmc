@@ -1,0 +1,147 @@
+// WallaBMC configuration shared by the Atlantis SLT and EVB MCU boards
+
+/*
+ * No-access MPU placeholder over the QSPI memory-mapped window. The QSPI
+ * driver does not use it; deleting it frees an MPU region.
+ */
+/delete-node/ &quadspi_memory;
+
+/ {
+	chosen {
+		zephyr,code-partition = &slot0_partition;
+	};
+
+	/* RCPU JTAG, reaches the SoC when SYS_JTAG0_SEL1:SEL0 = 01 */
+	jtag {
+		// What is a better setting for this?
+		compatible = "gpio-leds";
+
+		jtag0_tck: jtag0_tck {
+			gpios = <&gpiof 12 GPIO_ACTIVE_HIGH>;
+		};
+		jtag0_tms: jtag0_tms {
+			gpios = <&gpiof 11 GPIO_ACTIVE_HIGH>;
+		};
+		jtag0_tdi: jtag0_tdi {
+			gpios = <&gpiof 13 GPIO_ACTIVE_HIGH>;
+		};
+		jtag0_tdo: jtag0_tdo {
+			gpios = <&gpiof 14 GPIO_PULL_UP>;
+		};
+	};
+
+	aliases {
+		jtagtck = &jtag0_tck;
+		jtagtms = &jtag0_tms;
+		jtagtdi = &jtag0_tdi;
+		jtagtdo = &jtag0_tdo;
+
+		reset-gpio-1 = &sys_rstn;
+		status-led = &green_led;
+
+		reset-button = &user_button;
+		host-console-uart = &usart2;
+		host-console-uart-muxsel = &sys_uart_sel0;
+	};
+};
+
+/*
+ * Fixed defaults. SYS_UART_SEL1 low so that SEL0 alone picks the FT4232
+ * (0) or the MCU (1) for SoC UART0/UART1. The boot flash and SD slot S2
+ * muxes power up isolated; give both to the SoC. The SoC handshakes
+ * (OTP_PWRRDY, PWR1_GD, PWR2_GD) must stay low until a power sequencer
+ * knows the rails are good.
+ */
+&gpiod {
+	sys_uart_sel1_hog: sys_uart_sel1_hog {
+		gpio-hog;
+		gpios = <14 GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+};
+
+&gpioe {
+	qspi_mux_en_hog: qspi_mux_en_hog {
+		gpio-hog;
+		gpios = <5 GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+	qspi_mux_in1_hog: qspi_mux_in1_hog {
+		gpio-hog;
+		gpios = <6 GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+	qspi_mux_in2_hog: qspi_mux_in2_hog {
+		gpio-hog;
+		gpios = <7 GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+	sdio_mux_en_hog: sdio_mux_en_hog {
+		gpio-hog;
+		gpios = <8 GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+};
+
+&gpiof {
+	otp_pwrrdy_hog: otp_pwrrdy_hog {
+		gpio-hog;
+		gpios = <2 GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+};
+
+&gpiog {
+	pwr1_gd_hog: pwr1_gd_hog {
+		gpio-hog;
+		gpios = <1 GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+	pwr2_gd_hog: pwr2_gd_hog {
+		gpio-hog;
+		gpios = <2 GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+	sdio_mux_in1_hog: sdio_mux_in1_hog {
+		gpio-hog;
+		gpios = <3 GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+	sdio_mux_in2_hog: sdio_mux_in2_hog {
+		gpio-hog;
+		gpios = <4 GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+};
+
+&die_temp {
+	status = "okay";
+};
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		/* Sectors 0-1 (2*32 kbytes) for mcuboot */
+		boot_partition: partition@0 {
+			label = "mcuboot";
+			reg = <0x00000000 DT_SIZE_K(64)>;
+		};
+
+		/* Sectors 2-3 (2*32 kbytes) for NVS storage */
+		storage_partition: partition@10000 {
+			label = "storage";
+			reg = <0x00010000 DT_SIZE_K(64)>;
+		};
+
+		/* Sector 4 (128 kbytes) unallocated */
+
+		/* Sectors 5-7 (3*256 kbytes) for the application image */
+		slot0_partition: partition@40000 {
+			label = "image-0";
+			reg = <0x00040000 DT_SIZE_K(768)>;
+		};
+	};
+};

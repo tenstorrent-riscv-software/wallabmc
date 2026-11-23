@@ -1,0 +1,23 @@
+#include "../../../boards/atlantis_evb_mcu.overlay"
+
+/*
+ * This comes from zephyr/bootloader/mcuboot/boot/zephyr/app.overlay
+ * Otherwise mcuboot builds using the slot0_partition which is where
+ * wallabmc lives.
+ */
+/ {
+    chosen {
+        zephyr,code-partition = &boot_partition;
+    };
+};
+
+/*
+ * MCUboot's sysbuild CMake wants erase-block-size on the flash node to
+ * estimate the image trailer size and warns if it is missing. Zephyr
+ * omits it for STM32F7 because the sectors are not uniform (4x32K,
+ * 1x128K, 3x256K). Use the largest sector as a safe upper bound. Only
+ * MCUboot's build sees this; the flash driver has its own sector table.
+ */
+&flash0 {
+    erase-block-size = <DT_SIZE_K(256)>;
+};

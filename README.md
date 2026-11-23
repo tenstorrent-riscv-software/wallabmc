@@ -25,6 +25,8 @@ WallaBMC currently supports the following hardware platforms:
 
 | Hardware | Zephyr board name | Description |
 | --- | --- | --- |
+| **Tenstorrent Atlantis SLT MCU** | atlantis_slt_mcu | STM32F746 BMC on the Atlantis SLT board (not yet run on hardware) |
+| **Tenstorrent Atlantis EVB MCU** | atlantis_evb_mcu | STM32F746 BMC on the Atlantis EVB board (not yet run on hardware) |
 | **SiFive HiFive Premier P550 MCU** | hifive_premier_p550_mcu | RISC-V based platform |
 | **STM32 Nucleo F767ZI** | nucleo_f767zi | ARM Cortex-M7 development board (standalone, no host CPU) |
 | **Seeed Studio XIAO ESP32-C6** | xiao_esp32c6/esp32c6/hpcore | RISC-V, Wi-Fi 6, on a 21×17.5 mm board with USB-C; BMC console over USB Serial/JTAG (see [below](#seeed-xiao-esp32-c6)) |
@@ -97,6 +99,8 @@ these options.
 Different boards have different build steps. Refer to the
 board specific documentation for details.
 
+[Atlantis SLT MCU](boards/atlantis_slt_mcu.md)
+[Atlantis EVB MCU](boards/atlantis_evb_mcu.md)
 [Nucleo F767ZI](boards/nucleo_f767zi.md)
 [P550 MCU](boards/hifive_premier_p550_mcu.md)
 [XIAO ESP32-C6](boards/xiao_esp32c6_hpcore.md)

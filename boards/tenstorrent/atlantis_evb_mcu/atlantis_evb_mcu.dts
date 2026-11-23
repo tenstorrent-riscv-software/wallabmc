@@ -1,0 +1,67 @@
+/*
+ * SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+#include "../common/atlantis_mcu.dtsi"
+
+/*
+ * The MCU runs from the ATX
+ * standby rail (D3V3_SB) and owns the PSU through PS_ON#. The EVB names
+ * the MCU I2C buses MCU_M, MCU_S and MCU_P (SLT I2C6, I2C2 and I2C5).
+ */
+
+/ {
+	model = "Tenstorrent Atlantis EVB MCU";
+	compatible = "tenstorrent,atlantis-evb-mcu";
+
+	gpio_keys {
+		/*
+		 * ATX PS_ON# through Q12 (100K gate pull-down): high turns the
+		 * PSU on, low or floating turns it off. P12V, P5V and P3V3 all
+		 * follow it, so an MCU reset powers the host off.
+		 */
+		atx_pson: atx_pson {
+			gpios = <&gpiob 10 GPIO_ACTIVE_HIGH>;
+			label = "ATX_PSON_MCU";
+		};
+
+		/*
+		 * ATX PWR_OK. R915/R916 bias the node to 2.5 V when nothing
+		 * drives it, so only trust a high after atx_pson is asserted.
+		 */
+		atx_pwr_ok: atx_pwr_ok {
+			gpios = <&gpiob 9 GPIO_ACTIVE_HIGH>;
+			label = "ATX_PWR_OK";
+		};
+
+		/* M.2 slot 3.3 V: TPS25200 U90 EN, which has no pull resistor */
+		m2_vcc_en: m2_vcc_en {
+			gpios = <&gpioc 13 GPIO_ACTIVE_HIGH>;
+			label = "M2_VCC_EN";
+		};
+
+		/*
+		 * SoC BOOT_MODE[2:0] overrides. High turns on Q13-Q15 and forces
+		 * the bit low; low or floating leaves it to DIP switch J44.
+		 */
+		soc_btm0: soc_btm0 {
+			gpios = <&gpiod 7 GPIO_ACTIVE_HIGH>;
+			label = "SOC_BTM0";
+		};
+		soc_btm1: soc_btm1 {
+			gpios = <&gpiof 5 GPIO_ACTIVE_HIGH>;
+			label = "SOC_BTM1";
+		};
+		soc_btm2: soc_btm2 {
+			gpios = <&gpiog 14 GPIO_ACTIVE_HIGH>;
+			label = "SOC_BTM2";
+		};
+	};
+};
+
+/* Push-pull SN74AVC4T245 output here, high-Z until DVDD_1V8 is up */
+&tj_max {
+	gpios = <&gpiog 0 (GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN)>;
+};

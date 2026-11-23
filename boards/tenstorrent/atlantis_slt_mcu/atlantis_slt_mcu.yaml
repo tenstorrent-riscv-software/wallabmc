@@ -1,0 +1,14 @@
+identifier: atlantis_slt_mcu
+name: Tenstorrent Atlantis SLT MCU
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+ram: 256
+flash: 1024
+supported:
+  - gpio
+  - i2c
+  - netif:eth
+  - rtc

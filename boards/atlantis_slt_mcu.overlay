@@ -1,0 +1,3 @@
+// Tenstorrent Atlantis SLT MCU
+
+#include "tenstorrent/common/atlantis_wallabmc.dtsi"

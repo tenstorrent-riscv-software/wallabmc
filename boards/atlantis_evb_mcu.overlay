@@ -1,0 +1,41 @@
+// Tenstorrent Atlantis EVB MCU
+
+#include "tenstorrent/common/atlantis_wallabmc.dtsi"
+
+/*
+ * The EVB has no DIP switches on the mux selects and the pull-ups leave
+ * them at 11 (no source), so route both SoC JTAG ports to the USB bridge
+ * U73 until jtag.c takes a port for the MCU. The M.2 enable has no pull
+ * resistor; the hog keeps the slot off from MCUboot until the power
+ * sequence reaches it.
+ */
+&gpioa {
+	sys_jtag0_sel0_hog: sys_jtag0_sel0_hog {
+		gpio-hog;
+		gpios = <5 GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+	sys_jtag0_sel1_hog: sys_jtag0_sel1_hog {
+		gpio-hog;
+		gpios = <6 GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+	sys_jtag1_sel0_hog: sys_jtag1_sel0_hog {
+		gpio-hog;
+		gpios = <11 GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+	sys_jtag1_sel1_hog: sys_jtag1_sel1_hog {
+		gpio-hog;
+		gpios = <12 GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+};
+
+&gpioc {
+	m2_vcc_en_hog: m2_vcc_en_hog {
+		gpio-hog;
+		gpios = <13 GPIO_ACTIVE_HIGH>;
+		output-low;
+	};
+};
