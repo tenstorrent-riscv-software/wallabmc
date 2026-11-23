@@ -14,9 +14,14 @@
 # Only the handshake is tested. The connection is closed before the
 # "Auth:" message the consoles expect, so no console session is started.
 #
+# By default both ws:// and wss:// are tried. A device built with
+# CONFIG_APP_HTTP=n doesn't serve the consoles over plain HTTP, it
+# redirects to HTTPS, so that redirect is accepted in place of an
+# upgrade.
+#
 # Usage: test-websocket.sh [--http-only|--https-only] [IP]
-#   --http-only   Device was built with CONFIG_APP_HTTPS=n
-#   --https-only  Only test wss:// (HTTP redirects to HTTPS)
+#   --http-only   Only test ws:// (device built with CONFIG_APP_HTTPS=n)
+#   --https-only  Only test wss://
 #   IP            Target device address (default: 192.168.1.110)
 
 set -u
@@ -37,8 +42,8 @@ ACCEPT="$(printf '%s%s' "$KEY" "$GUID" | openssl dgst -sha1 -binary | openssl ba
 usage() {
 	cat <<'USAGE'
 Usage: test-websocket.sh [--http-only|--https-only] [IP]
-  --http-only   Device was built with CONFIG_APP_HTTPS=n
-  --https-only  Only test wss:// (HTTP redirects to HTTPS)
+  --http-only   Only test ws:// (device built with CONFIG_APP_HTTPS=n)
+  --https-only  Only test wss://
   IP            Target device address (default: 192.168.1.110)
 USAGE
 }
@@ -85,7 +90,12 @@ for scheme in $schemes; do
 		code="$(printf '%s\n' "$headers" | awk 'NR==1{print $2}')"
 		accept="$(printf '%s\n' "$headers" |
 			awk 'tolower($1)=="sec-websocket-accept:"{print $2}')"
-		if [ "$code" != 101 ]; then
+		location="$(printf '%s\n' "$headers" |
+			awk 'tolower($1)=="location:"{print $2}')"
+		if [ "$schemes" = "http https" ] && [ "$scheme" = http ] &&
+		   [ "$code" = 308 ] && [ "$location" = "https://$IP$path" ]; then
+			pass "$url redirects to HTTPS (CONFIG_APP_HTTP=n)"
+		elif [ "$code" != 101 ]; then
 			fail "$url -> ${code:-no response}, expected 101"
 		elif [ "$accept" != "$ACCEPT" ]; then
 			fail "$url Sec-WebSocket-Accept is '${accept}'"
