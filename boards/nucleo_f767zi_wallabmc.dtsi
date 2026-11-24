@@ -1,0 +1,64 @@
+/delete-node/ &quadspi_memory;
+
+// WallaBMC configuration shared by the Nucleo F767ZI and its atlantis variant
+/ {
+    chosen {
+        zephyr,rtc = &rtc;
+    };
+
+    jtag {
+        // What is a better setting for this?
+        compatible = "gpio-leds";
+
+        jtagtck: jtag_tck {
+            gpios = <&gpioe  2 GPIO_ACTIVE_HIGH>;
+        };
+        jtagtms: jtag_tms {
+            gpios = <&gpioe  3 GPIO_ACTIVE_HIGH>;
+        };
+        jtagtdo: jtag_tdo {
+            gpios = <&gpioe  5     GPIO_PULL_UP>;
+        };
+        jtagtdi: jtag_tdi {
+            gpios = <&gpioe  6 GPIO_ACTIVE_HIGH>;
+        };
+    };
+
+    // Zephyr configures ACTIVE_LOW by default, which reads 0 when the
+    // button is pressed and 1 when it is released. Flip to 1 on press.
+    gpio_keys {
+        compatible = "gpio-keys";
+
+        user_button: button_0 {
+            label = "User";
+            gpios = <&gpioc 13 GPIO_ACTIVE_HIGH>;
+            zephyr,code = <INPUT_KEY_0>;
+        };
+    };
+
+    aliases {
+        jtagtck = &jtagtck;
+        jtagtms = &jtagtms;
+        jtagtdi = &jtagtdi;
+        jtagtdo = &jtagtdo;
+
+        power-led = &green_led;
+        status-led = &blue_led;
+
+        reset-button = &user_button;
+	host-console-uart = &usart6;
+    };
+};
+
+&spi4 {
+     status = "disabled";
+};
+
+&die_temp {
+    status = "okay";
+};
+
+&usart6 {
+	current-speed = <115200>;
+	status = "okay";
+};
