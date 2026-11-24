@@ -21,6 +21,7 @@ LOG_MODULE_REGISTER(wallabmc_config, LOG_LEVEL_INF);
 #include "wifi.h"
 #include "ntp.h"
 #include "fs.h"
+#include "https_cert.h"
 
 #define MAX_HOSTNAME_LEN CONFIG_NET_HOSTNAME_MAX_LEN
 
@@ -51,6 +52,7 @@ enum config_id {
 	CFG_BMC_WIFI_PASSWORD = 13,		/* C string */
 	CFG_HTTPS_KEY = 14,			/* blob: private key, SEC1 DER */
 	CFG_HTTPS_CERT = 15,			/* blob: enum https_cert_source byte, then leaf certificate as DER */
+	CFG_HTTPS_EXTRA_NAMES = 16,		/* blob: C string, no NUL */
 	/*
 	 * Add field IDs in increasing order and do not reuse deprecated
 	 * ones. Do not change meaning but add new and deprecate old.
@@ -159,6 +161,7 @@ static int config_blob_id(enum config_blob blob)
 	switch (blob) {
 	case CONFIG_BLOB_HTTPS_KEY:		return CFG_HTTPS_KEY;
 	case CONFIG_BLOB_HTTPS_CERT:		return CFG_HTTPS_CERT;
+	case CONFIG_BLOB_HTTPS_EXTRA_NAMES:	return CFG_HTTPS_EXTRA_NAMES;
 	}
 	return -EINVAL;
 }
@@ -295,6 +298,8 @@ int config_bmc_hostname_set(const char *hostname)
 		return rc;
 	}
 
+	https_cert_names_changed();
+
 	return 0;
 }
 
@@ -381,6 +386,8 @@ int config_bmc_default_ip4_set(const char *str)
 		LOG_ERR("Configuration could not be saved (err=%d)", rc);
 		return rc;
 	}
+
+	https_cert_names_changed();
 
 	return 0;
 }

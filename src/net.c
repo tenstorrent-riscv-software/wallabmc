@@ -46,6 +46,24 @@ bool net_hostname_valid(const char *hostname)
 	return dns_label_valid(hostname, strlen(hostname));
 }
 
+bool net_dns_name_valid(const char *name, size_t len)
+{
+	if (len == 0 || len > 253)
+		return false;
+
+	for (;;) {
+		const char *dot = memchr(name, '.', len);
+		size_t label_len = dot ? (size_t)(dot - name) : len;
+
+		if (!dns_label_valid(name, label_len))
+			return false;
+		if (!dot)
+			return true;
+		name = dot + 1;
+		len -= label_len + 1;
+	}
+}
+
 int net_do_set_hostname(const char *hostname)
 {
 	int rc;

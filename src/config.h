@@ -42,6 +42,7 @@ bool config_persistent(void);
 enum config_blob {
 	CONFIG_BLOB_HTTPS_KEY,
 	CONFIG_BLOB_HTTPS_CERT,
+	CONFIG_BLOB_HTTPS_EXTRA_NAMES,
 };
 
 /*
