@@ -119,7 +119,14 @@ ssize_t fs_key_read(uint16_t id, void *buf, size_t size)
 	if (!fs_enabled())
 		return -ENODEV;
 
-	rc = nvs_read(&nvs_fs, id, buf, size);
+	/*
+	 * nvs_read() fails for a buffer larger than the largest item a
+	 * sector can hold, even if the item is smaller. So get the item's
+	 * length, which a zero length read returns, and read just that.
+	 */
+	rc = nvs_read(&nvs_fs, id, buf, 0);
+	if (rc >= 0 && (size_t)rc <= size)
+		rc = nvs_read(&nvs_fs, id, buf, rc);
 	if (rc < 0) {
 		if (rc != -ENOENT)
 			LOG_ERR("Could not read config id %u (err=%zd)", id, rc);
