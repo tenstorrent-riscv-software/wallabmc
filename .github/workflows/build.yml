@@ -64,7 +64,7 @@ jobs:
             echo "Error: Could not find Zephyr SDK in /opt/toolchains"
             exit 1
           fi
-          echo "ZEPHYR_SDK_INSTALL_DIR=$SDK_PATH" >> $GITHUB_ENV
+          echo "ZEPHYR_SDK_INSTALL_DIR=$SDK_PATH" >> "$GITHUB_ENV"
 
       - name: Create Workspace Directory
         run: mkdir workspace
@@ -102,7 +102,7 @@ jobs:
         working-directory: workspace
         shell: bash
         run: |
-          west build --sysbuild -p always -b $BOARD ../wallabmc 2>&1 | tee build.log
+          west build --sysbuild -p always -b "$BOARD" ../wallabmc 2>&1 | tee build.log
           for report in rom_report ram_report; do
             west build -t $report --domain wallabmc > $report.log 2>&1 || {
               echo "::warning::$report failed for $BOARD"
@@ -129,7 +129,7 @@ jobs:
         run: |
           # qemu_cortex_m3 and xiao_esp32c6 are listed in NO_SYSBUILD_BOARDS;
           # xiao uses Espressif Simple Boot rather than MCUboot.
-          west build -p always -b $BOARD ../wallabmc 2>&1 | tee build.log
+          west build -p always -b "$BOARD" ../wallabmc 2>&1 | tee build.log
           for report in rom_report ram_report; do
             west build -t $report > $report.log 2>&1 || {
               echo "::warning::$report failed for $BOARD"
