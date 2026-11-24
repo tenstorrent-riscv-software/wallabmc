@@ -2,11 +2,11 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Collect and compare binary size numbers from west builds.
+"""Collect and compare binary size numbers and Kconfig from west builds.
 
 collect: read the linker memory usage tables from a west build log, the
-         output file sizes, and the rom_report/ram_report JSON if present,
-         and write them to one JSON file per board.
+         output file sizes, the rom_report/ram_report JSON if present, and
+         the final .config, and write them to one JSON file per board.
 
 compare: render a markdown report from two directories of those files.
 
@@ -31,6 +31,15 @@ TABLE_ROW = re.compile(
 GENERATING = re.compile(r"^Generating files from (.+)/zephyr/zephyr\.elf ")
 UNITS = {"B": 1, "KB": 1 << 10, "MB": 1 << 20, "GB": 1 << 30}
 
+CONFIG_SET = re.compile(r"^CONFIG_(\w+)=(.*)$")
+CONFIG_UNSET = re.compile(r"^# CONFIG_(\w+) is not set$")
+
+# Kconfig symbols that differ from one build to the next, or that should not
+# be published. They are dropped when collecting.
+CONFIG_IGNORE = {
+    "DEFAULT_ADMIN_PASSWORD",  # random for each build
+}
+
 # Output files worth tracking, in order of preference for the report.
 FILES = ["zephyr.signed.bin", "zephyr.bin"]
 
@@ -43,6 +52,7 @@ FILES = ["zephyr.signed.bin", "zephyr.bin"]
 SKIP_REGIONS = {"IDT_LIST", "irom0_0_seg", "drom0_0_seg"}
 
 TOP_SYMBOLS = 10
+MAX_CONFIG_LINES = 100
 MAX_REPORT = 60000
 
 
@@ -94,6 +104,25 @@ def load_symbols(path):
     return out
 
 
+def load_config(path):
+    """Parse a .config into {symbol: value}, with unset symbols as n."""
+    config = {}
+    with open(path, errors="replace") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            m = CONFIG_SET.match(line)
+            if m:
+                name, value = m.groups()
+            else:
+                m = CONFIG_UNSET.match(line)
+                if not m:
+                    continue
+                name, value = m.group(1), "n"
+            if name not in CONFIG_IGNORE:
+                config[name] = value
+    return config
+
+
 def collect(args):
     images = {}
     for spec in args.image:
@@ -128,6 +157,10 @@ def collect(args):
             if os.path.exists(path):
                 image["symbols"][kind] = load_symbols(path)
 
+        path = os.path.join(directory, "zephyr", ".config")
+        if os.path.exists(path):
+            image["config"] = load_config(path)
+
         if not image["regions"]:
             sys.exit(f"no memory usage table for {name} ({directory}) in {args.log}")
         result["images"][name] = image
@@ -143,7 +176,7 @@ def collect(args):
 
 def clean(text, limit=160):
     """Make an untrusted string safe to put in a markdown code span."""
-    text = re.sub(r"[^A-Za-z0-9_./:()<>+,*&~ -]", "?", str(text))
+    text = re.sub(r"[^A-Za-z0-9_./:()<>+,*&~ \"'=@%#\[\]{}-]", "?", str(text))
     return text[:limit]
 
 
@@ -259,11 +292,83 @@ def symbol_changes(head, base, kind):
     return changes
 
 
+def config_changes(head, base):
+    """Changes between two configs as (symbol, diffconfig style line)."""
+    changes = []
+    for name in sorted(set(head) | set(base)):
+        h, b = head.get(name), base.get(name)
+        if h == b:
+            continue
+        name = clean(name, 80)
+        if b is None:
+            changes.append((name, f"+{name} {clean(h)}"))
+        elif h is None:
+            changes.append((name, f"-{name} {clean(b)}"))
+        else:
+            changes.append((name, f" {name} {clean(b)} -> {clean(h)}"))
+    return changes
+
+
+def config_report(head, base):
+    """Markdown lines for the Kconfig changes of every board."""
+    groups = {}  # rendered changes -> boards that have exactly those
+    symbols = set()
+    compared = 0
+
+    for board in sorted(head):
+        lines = []
+        seen = False
+        for image in sorted(head[board], key=lambda n: (n != "wallabmc", n)):
+            h = get(head, board, image, "config")
+            b = get(base, board, image, "config")
+            if not isinstance(h, dict) or not isinstance(b, dict):
+                continue
+            seen = True
+            changes = config_changes(h, b)
+            if not changes:
+                continue
+            symbols.update((image, name) for name, _ in changes)
+            if image != "wallabmc":
+                lines.append(f"{clean(image, 32)}:")
+            lines += [line for _, line in changes[:MAX_CONFIG_LINES]]
+            if len(changes) > MAX_CONFIG_LINES:
+                lines.append(f"... and {len(changes) - MAX_CONFIG_LINES} more")
+        compared += seen
+        if lines:
+            groups.setdefault(tuple(lines), []).append(board)
+
+    if not compared:
+        return []
+    if not groups:
+        return ["", "Kconfig: no changes."]
+
+    boards = sum(len(b) for b in groups.values())
+    summary = (
+        f"Kconfig: {len(symbols)} symbol{'s' * (len(symbols) != 1)} changed"
+        f" on {boards} board{'s' * (boards != 1)}."
+    )
+    out = [
+        "",
+        summary,
+        "",
+        "<details><summary>Kconfig changes</summary>",
+        "",
+    ]
+    for lines, names in groups.items():
+        if len(names) == compared and compared > 1:
+            title = "All boards"
+        else:
+            title = ", ".join(f"`{n}`" for n in names)
+        out += [title, "", "```", *lines, "```", ""]
+    out += ["</details>"]
+    return out
+
+
 def compare(args):
     head = load_dir(args.head)
     base = load_dir(args.base)
 
-    out = [MARKER, "### Binary size", ""]
+    out = [MARKER, "### Build report", ""]
 
     if not head:
         out.append("No size data was produced by this build.")
@@ -324,6 +429,8 @@ def compare(args):
                 "",
             ]
 
+    out += config_report(head, base)
+
     if details:
         out += ["", *details]
 
@@ -342,7 +449,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("collect", help="gather size numbers from a build")
+    p = sub.add_parser("collect", help="gather numbers from a build")
     p.add_argument("--board", required=True, help="name used in the report")
     p.add_argument("--log", required=True, help="west build output")
     p.add_argument(
