@@ -35,6 +35,8 @@ jobs:
         include:
           - board: nucleo_f767zi
             name: nucleo_f767zi
+          - board: nucleo_f767zi/stm32f767xx/atlantis
+            name: nucleo_f767zi_atlantis
           - board: hifive_premier_p550_mcu
             name: hifive_premier_p550_mcu
           - board: atlantis_slt_mcu
