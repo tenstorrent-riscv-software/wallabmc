@@ -118,6 +118,12 @@
 	status = "okay";
 };
 
+/*
+ * The nucleo_f767zi atlantis variant copies this layout. Make the same
+ * change in boards/nucleo_f767zi_atlantis.overlay; see
+ * boards/nucleo_f767zi_atlantis.md, which also explains that sector 4 is
+ * unused for no technical reason.
+ */
 &flash0 {
 	partitions {
 		compatible = "fixed-partitions";

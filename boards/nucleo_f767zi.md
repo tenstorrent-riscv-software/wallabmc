@@ -20,6 +20,9 @@ cd zephyr
 west build -p --sysbuild -b nucleo_f767zi ../wallabmc
 ```
 
+To build with the flash and RAM limits of the Atlantis STM32F746ZG, see the
+[Atlantis variant](nucleo_f767zi_atlantis.md).
+
 ### Flashing
 
 ```
