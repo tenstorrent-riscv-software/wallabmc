@@ -1,0 +1,72 @@
+# SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Post the binary size report from a pull request's build as a comment.
+#
+# This is separate from the build because a pull_request run from a fork has
+# a read-only token. A workflow_run job runs from the default branch with a
+# token that can comment, so it must not run anything from the pull request:
+# it only reads the numbers the build uploaded and formats them with the
+# script from main.
+
+name: Size Comment
+
+on:
+  workflow_run:
+    workflows: ["Build WallaBMC"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.event == 'pull_request' }}
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Comment
+        run: |
+          if ! gh run download "$RUN_ID" --repo "$REPO" --name pr-size-report --dir sizes; then
+            echo "The build produced no size report"
+            exit 0
+          fi
+
+          # The pull request number comes from the build, so check that it
+          # names the pull request this build was for.
+          pr=$(jq -r '.pr | select(type == "number") | floor' sizes/meta.json)
+          if [ -z "$pr" ]; then
+            echo "No pull request number in the report"
+            exit 0
+          fi
+          if [ "$(gh api "repos/$REPO/pulls/$pr" --jq .head.sha)" != "$HEAD_SHA" ]; then
+            echo "Pull request $pr is not at $HEAD_SHA, not commenting"
+            exit 0
+          fi
+
+          python3 scripts/size_report.py compare \
+            --head sizes/head --base sizes/base \
+            --base-sha "$(jq -r '.base_sha | strings' sizes/meta.json)" \
+            --wanted-base-sha "$(jq -r '.wanted_sha | strings' sizes/meta.json)" \
+            -o comment.md
+
+          # Keep one comment per pull request and update it.
+          id=$(gh api "repos/$REPO/issues/$pr/comments" --paginate --jq '
+            .[] | select(.user.login == "github-actions[bot]") |
+            select(.body | startswith("<!-- wallabmc-size-report -->")) | .id' | head -n 1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@comment.md > /dev/null
+          else
+            gh api "repos/$REPO/issues/$pr/comments" -F body=@comment.md > /dev/null
+          fi
