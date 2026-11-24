@@ -51,7 +51,7 @@ enum config_id {
 	CFG_BMC_WIFI_SSID = 12,			/* C string */
 	CFG_BMC_WIFI_PASSWORD = 13,		/* C string */
 	CFG_HTTPS_KEY = 14,			/* blob: private key, SEC1 DER */
-	CFG_HTTPS_CERT = 15,			/* blob: enum https_cert_source byte, then leaf certificate as DER */
+	CFG_HTTPS_CERT = 15,			/* blob: enum https_cert_source byte, then leaf certificate as DER, or leaf and chain as NUL terminated PEM */
 	CFG_HTTPS_EXTRA_NAMES = 16,		/* blob: C string, no NUL */
 	/*
 	 * Add field IDs in increasing order and do not reuse deprecated
