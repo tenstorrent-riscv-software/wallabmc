@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Same as Zephyr's nucleo_f767zi_defconfig, which a variant does not inherit
+
+# Enable MPU
+CONFIG_ARM_MPU=y
+
+# Enable HW stack protection
+CONFIG_HW_STACK_PROTECTION=y
+
+# Enable UART
+CONFIG_SERIAL=y
+
+# Console
+CONFIG_CONSOLE=y
+CONFIG_UART_CONSOLE=y

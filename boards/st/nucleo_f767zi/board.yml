@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Extends Zephyr's nucleo_f767zi with a variant limited to what the
+# Atlantis STM32F746ZG has. See boards/nucleo_f767zi_atlantis.md.
+board:
+  extend: nucleo_f767zi
+  variants:
+    - name: atlantis
+      qualifier: stm32f767xx

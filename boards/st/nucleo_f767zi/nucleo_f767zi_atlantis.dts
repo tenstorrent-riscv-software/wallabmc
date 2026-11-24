@@ -1,0 +1,53 @@
+/*
+ * SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/*
+ * Nucleo F767ZI limited to what the Atlantis BMC (STM32F746ZG) has, so
+ * that the Atlantis memory budget can be tested on a Nucleo. The
+ * differences are listed in boards/nucleo_f767zi_atlantis.md; update
+ * that file when changing this one.
+ *
+ * The include resolves against ${ZEPHYR_BASE}/dts.
+ */
+#include <../boards/st/nucleo_f767zi/nucleo_f767zi.dts>
+
+/ {
+	model = "STMicroelectronics STM32F767ZI-NUCLEO board limited to STM32F746ZG";
+	compatible = "st,stm32f767zi-nucleo-atlantis", "st,stm32f767zi-nucleo";
+
+	soc {
+		compatible = "st,stm32f746", "st,stm32f7", "simple-bus";
+	};
+};
+
+/* 1 MB, as stm32f746Xg.dtsi. Sectors 0-7 match the F746 sector layout. */
+&flash0 {
+	reg = <0x08000000 DT_SIZE_K(1024)>;
+	ranges = <0 0x8000000 DT_SIZE_K(1024)>;
+};
+
+/* These sit above 1 MB */
+/delete-node/ &slot1_partition;
+/delete-node/ &scratch_partition;
+
+/*
+ * 256 KB (240 KB SRAM1 + 16 KB SRAM2), as stm32f745.dtsi. The F746 has it
+ * at 0x20010000; on this part SRAM1 starts at 0x20020000 and that cannot
+ * be changed.
+ */
+&sram0 {
+	reg = <0x20020000 DT_SIZE_K(256)>;
+};
+
+/* 64 KB, as stm32f745.dtsi */
+&dtcm {
+	reg = <0x20000000 DT_SIZE_K(64)>;
+};
+
+/* Peripherals the F746 does not have (stm32f765.dtsi, stm32f767.dtsi) */
+/delete-node/ &dfsdm;
+/delete-node/ &sdmmc2;
+/delete-node/ &mipi_dsi;
+/delete-node/ &jpeg;
