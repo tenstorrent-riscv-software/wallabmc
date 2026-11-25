@@ -5,8 +5,8 @@
 """Collect and compare binary size numbers and Kconfig from west builds.
 
 collect: read the linker memory usage tables from a west build log, the
-         output file sizes, the rom_report/ram_report JSON if present, and
-         the final .config, and write them to one JSON file per board.
+         rom_report/ram_report JSON if present, and the final .config,
+         and write them to one JSON file per board.
 
 compare: render a markdown report from two directories of those files.
 
@@ -39,9 +39,6 @@ CONFIG_UNSET = re.compile(r"^# CONFIG_(\w+) is not set$")
 CONFIG_IGNORE = {
     "DEFAULT_ADMIN_PASSWORD",  # random for each build
 }
-
-# Output files worth tracking, in order of preference for the report.
-FILES = ["zephyr.signed.bin", "zephyr.bin"]
 
 # Regions that are linker bookkeeping rather than memory.
 #
@@ -144,7 +141,7 @@ def collect(args):
 
     for name, directory in images.items():
         real = os.path.realpath(directory)
-        image = {"regions": {}, "files": {}, "symbols": {}}
+        image = {"regions": {}, "symbols": {}}
 
         for table_dir, regions in tables:
             if os.path.realpath(table_dir) == real:
@@ -154,11 +151,6 @@ def collect(args):
                 image["regions"] = {
                     k: v for k, v in regions.items() if k not in SKIP_REGIONS
                 }
-
-        for filename in FILES:
-            path = os.path.join(directory, "zephyr", filename)
-            if os.path.exists(path):
-                image["files"][filename] = os.path.getsize(path)
 
         for kind in ("rom", "ram"):
             path = os.path.join(directory, f"{kind}.json")
@@ -254,7 +246,6 @@ def rows_for(head, base):
     for image in sorted(head, key=lambda n: (n != "wallabmc", n)):
         prefix = "" if image == "wallabmc" else f"{clean(image, 32)} "
         regions = head[image].get("regions", {})
-        files = head[image].get("files", {})
         base_regions = base.get(image, {}).get("regions", {})
         image_rows = []
 
@@ -273,12 +264,6 @@ def rows_for(head, base):
             label = prefix + clean(region, 32)
             size = as_int(v.get("size"))
             image_rows.append(row(image, label, kind, region, v.get("used"), b, size))
-        for filename in FILES:
-            if filename in files:
-                b = get(base, image, "files", filename)
-                label = prefix + filename
-                image_rows.append(row(image, label, "file", None, files[filename], b))
-                break
 
         # Leave out what is unused in both builds, or unused with nothing
         # to compare to.
@@ -297,21 +282,7 @@ def rows_for(head, base):
 
 def trim(rows):
     """Drop the rows that the short report leaves out."""
-    flash = {}
-    for r in rows:
-        if r["region"] == "FLASH":
-            flash[r["image"]] = row_delta(r) or 0
-
-    kept = []
-    for r in rows:
-        d = row_delta(r)
-        if r["kind"] == "secondary" and not d:
-            continue
-        # The output file follows FLASH, so it only says something when
-        # the two move apart.
-        if r["kind"] == "file" and (d is None or d == flash.get(r["image"], 0)):
-            continue
-        kept.append(r)
+    kept = [r for r in rows if r["kind"] == "primary" or row_delta(r)]
     return kept or rows
 
 
