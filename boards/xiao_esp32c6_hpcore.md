@@ -19,8 +19,8 @@ and carries the BMC console.
 # One-time: fetch the Espressif Wi-Fi/PHY binary blobs.
 west blobs fetch hal_espressif
 
-cd zephyr
-west build -p -b xiao_esp32c6/esp32c6/hpcore ../wallabmc
+cd wallabmc
+west build -p -b xiao_esp32c6/esp32c6/hpcore
 ```
 
 ### Flashing

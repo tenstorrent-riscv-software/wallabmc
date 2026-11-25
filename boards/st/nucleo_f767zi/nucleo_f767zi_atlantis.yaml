@@ -1,0 +1,15 @@
+identifier: nucleo_f767zi/stm32f767xx/atlantis
+name: ST Nucleo F767ZI limited to STM32F746ZG (Atlantis)
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+ram: 256
+flash: 1024
+supported:
+  - gpio
+  - i2c
+  - netif:eth
+  - rtc
+vendor: st

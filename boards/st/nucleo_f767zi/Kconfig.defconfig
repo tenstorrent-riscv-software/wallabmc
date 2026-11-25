@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_NUCLEO_F767ZI_STM32F767XX_ATLANTIS
+
+# The STM32F746 FPU is single precision (FPv5-SP-D16)
+config CPU_HAS_FPU_DOUBLE_PRECISION
+	default n
+
+endif # BOARD_NUCLEO_F767ZI_STM32F767XX_ATLANTIS
