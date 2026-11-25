@@ -233,7 +233,7 @@ jobs:
 
       - name: Summarise
         run: |
-          python3 scripts/size_report.py compare \
+          python3 scripts/size_report.py compare --full \
             --head sizes/head --base sizes/base \
             --base-sha "$(jq -r .base_sha sizes/meta.json)" \
             --wanted-base-sha "$(jq -r .wanted_sha sizes/meta.json)" >> "$GITHUB_STEP_SUMMARY"
