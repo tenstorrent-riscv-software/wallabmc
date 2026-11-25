@@ -180,6 +180,34 @@ def clean(text, limit=160):
     return text[:limit]
 
 
+# Prefixes of the symbol paths from rom_report and ram_report, and what to
+# print in their place. The first one that matches is used.
+PATH_PREFIXES = [
+    (re.compile(r"^\(no paths\)/"), ""),
+    (re.compile(r"^WORKSPACE/modules/crypto/"), ""),
+    (re.compile(r"^WORKSPACE/modules/hal/stm32/stm32cube/"), ""),
+    (re.compile(r"^WORKSPACE/modules/(hal/)?"), ""),
+    (re.compile(r"^WORKSPACE/(wallabmc/)?"), ""),
+    (re.compile(r"^ZEPHYR_BASE/"), "zephyr/"),
+    # These paths start with zephyr/, so keep them apart from the sources.
+    (re.compile(r"^OUTPUT_DIR/"), "build/"),
+    # The toolchain is outside the west workspace, and so is the application
+    # in a local build, so they have absolute paths.
+    (re.compile(r"^/.*/zephyr-sdk-[^/]+/(gnu/)?"), ""),
+    (re.compile(r"^/.*/wallabmc/"), ""),
+]
+
+
+def short_path(name):
+    """Shorten a symbol path for display."""
+    name = str(name)
+    for pattern, replacement in PATH_PREFIXES:
+        short, n = pattern.subn(replacement, name, count=1)
+        if n:
+            return short
+    return name
+
+
 def as_int(value):
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
@@ -443,7 +471,7 @@ def compare(args):
             plural = "s" * (len(changes) != 1)
             section.append(f"{kind.upper()}, {len(changes)} symbol{plural} changed:")
             for d, name in changes[:TOP_SYMBOLS]:
-                section.append(f"{d:+8,}  {clean(name)}")
+                section.append(f"{d:+8,}  {clean(short_path(name))}")
             section.append("")
         if section:
             details += [
