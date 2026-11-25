@@ -302,15 +302,19 @@
 	status = "okay";
 };
 
-/* SoC UART0 via mux U82 */
+/*
+ * SoC UART0 via mux U82: the RCPU boot ROM and HILT console. The boot
+ * ROM leaves it at 9600 baud, 115200 only once the OTP "UART full
+ * speed" option is fused. Captured as console_rcpu.
+ */
 &usart2 {
 	pinctrl-0 = <&usart2_tx_pd5 &usart2_rx_pd6>;
 	pinctrl-names = "default";
-	current-speed = <115200>;
+	current-speed = <9600>;
 	status = "okay";
 };
 
-/* SoC UART1 via mux U83 */
+/* SoC UART1 via mux U83: the Ascalon OpenSBI/Linux console (ttyS0) */
 &usart3 {
 	pinctrl-0 = <&usart3_tx_pd8 &usart3_rx_pd9>;
 	pinctrl-names = "default";

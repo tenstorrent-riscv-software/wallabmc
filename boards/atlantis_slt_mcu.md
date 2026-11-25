@@ -12,10 +12,14 @@ bring-up checklist in the hardware reference.
 The MCU console (UART8) is channel C of the FT4232H behind the USB-C debug
 port and header J70.
 
-### Host serial console
+### Host serial consoles
 
-USART2 reaches the Atlantis SoC UART0 through the board's UART mux; the
-MCU drives the mux select.
+Two consoles come through the board's UART muxes, which the MCU points
+at itself. USART3 carries SoC UART1, the OpenSBI/Linux console: TCP port
+22 and the web UI's Host Console. USART2 carries SoC UART0, the RCPU
+boot ROM and HILT console at 9600 baud (set ``current-speed`` on
+``usart2`` to 115200 once the OTP option is fused): TCP port 23 and the
+RCPU Console. The TCP ports are raw; use ``nc``, not ``telnet``.
 
 ### Building
 ```

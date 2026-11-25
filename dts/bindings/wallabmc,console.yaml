@@ -1,0 +1,60 @@
+# SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  A host serial console the BMC captures. src/console_logger.c keeps a
+  ring of what the UART receives and, with CONSOLE_BRIDGE and
+  APP_WEB_TERMINAL_HOST_SERIAL, serves it raw on a TCP port and on a
+  websocket endpoint that the web UI shows as "<label> Console". Each
+  node costs one websocket context and one socket-service poll slot
+  (WEBSOCKET_MAX_CONTEXTS and ZVFS_POLL_MAX in Kconfig cover two).
+
+  Example:
+
+    console_host: console-host {
+        compatible = "wallabmc,console";
+        label = "Host";
+        uart = <&usart3>;
+        port = <22>;
+        endpoint = "/console/host";
+        mux-select = <&sys_uart_sel0>;
+    };
+
+compatible: "wallabmc,console"
+
+include: base.yaml
+
+properties:
+  label:
+    type: string
+    required: true
+    description: |
+      Name shown in the web UI and used in log and thread names. No
+      quotes or backslashes: it is printed into the /consoles JSON.
+
+  uart:
+    type: phandle
+    required: true
+    description: |
+      The UART node. Its current-speed is the baud rate (115200 if it
+      has none); the format is 8N1 without flow control.
+
+  port:
+    type: int
+    required: true
+    description: |
+      TCP port the raw console bridge listens on. Unique per board.
+
+  endpoint:
+    type: string
+    required: true
+    description: |
+      Websocket URL path, such as /console/host. Unique per board, and
+      without quotes or backslashes like label.
+
+  mux-select:
+    type: phandle
+    description: |
+      Node with a gpios property that routes the UART to the MCU when
+      driven active. Driven active at init and left there; consoles
+      that share a mux may name the same node.

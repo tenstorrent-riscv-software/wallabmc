@@ -333,8 +333,7 @@ config APP_WEB_TERMINAL_BMC_SHELL
 config APP_WEB_TERMINAL_HOST_SERIAL
 	bool "Host serial websocket and webui terminal"
 	default y
-	select APP_CONSOLE_LOGGER
-	depends on APP_WEB_TERMINAL
+	depends on APP_WEB_TERMINAL && APP_CONSOLE_LOGGER
 
 if APP_WEB_TERMINAL_HOST_SERIAL
 config CONSOLE_BRIDGE_WS_STACK_SIZE
@@ -411,10 +410,19 @@ config ZVFS_EVENTFD_MAX
 	depends on HTTP_SERVER
 	default 4
 
+# Socket services: the shell websocket (2), DNS (1) and one per
+# wallabmc,console node, plus the service thread's eventfd
 config ZVFS_POLL_MAX
 	int
 	depends on HTTP_SERVER
 	default 8
+
+# Two shell websockets, up to two consoles and a spare so a new client
+# can still take over a stale one. (Not derived from the devicetree:
+# dt_compat_enabled_num marks a compatible present even with no node.)
+config WEBSOCKET_MAX_CONTEXTS
+	int
+	default 5 if APP_WEB_TERMINAL_HOST_SERIAL
 
 config PERSISTENT_STORAGE
 	bool "Persistent storage for config"
@@ -543,27 +551,28 @@ config APP_STACK_DEBUG
 	select THREAD_ANALYZER_RUN_UNLOCKED
 
 config APP_CONSOLE_LOGGER
-	bool "Console logger (capture host console uart)"
+	bool "Console logger (capture the wallabmc,console UARTs)"
+	depends on DT_HAS_WALLABMC_CONSOLE_ENABLED
 	default y
 	select SERIAL
 	select UART_INTERRUPT_DRIVEN
 
 if APP_CONSOLE_LOGGER
 config APP_CONSOLE_LOG_SIZE
-	int "Console log size"
+	int "Console log size, per console"
 	range 64 65536
 	default 2048
 endif
 
 config CONSOLE_BRIDGE
-	bool "Console bridge (host console to TCP port 22)"
+	bool "Console bridge (raw TCP server per console)"
 	default y
 	depends on APP_CONSOLE_LOGGER
 
 if CONSOLE_BRIDGE
 
 config CONSOLE_BRIDGE_STACK_SIZE
-	int "Console bridge daemon stack size"
+	int "Console bridge stack size, per thread"
 	default 1024
 
 config CONSOLE_BRIDGE_PRIORITY

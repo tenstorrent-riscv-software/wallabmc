@@ -5,23 +5,21 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(host_console_ws, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(console_ws, LOG_LEVEL_INF);
 
 #include <zephyr/posix/fcntl.h>
-#include <zephyr/drivers/uart.h>
-#include <zephyr/drivers/gpio.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/socket_service.h>
 #include <zephyr/net/http/service.h>
 #include <zephyr/net/http/server.h>
 #include <zephyr/net/websocket.h>
 #include <errno.h>
+#include <stdio.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <string.h>
 
 #include "console_logger.h"
-#include "synch.h"
 #include "http.h"
 
 /*
@@ -30,34 +28,88 @@ LOG_MODULE_REGISTER(host_console_ws, LOG_LEVEL_INF);
  */
 #define WS_RX_BUF_SIZE 32
 
-struct host_websocket {
-        /** Array for sockets used by the websocket service. */
-        struct zsock_pollfd fds[1];
+/* One websocket endpoint per console, one client at a time */
+struct console_ws {
+	const char *endpoint;
+	uint16_t ord;		/* devicetree ordinal, matches struct console */
+	struct console *c;
+	const struct net_socket_service_desc *svc;
+	/** Array for sockets used by the websocket service. */
+	struct zsock_pollfd fds[1];
 	bool new_client;
+	struct k_thread sender;
 };
 
-static struct host_websocket host_websocket;
-
 static void ws_server_cb(struct net_socket_service_event *evt);
+static int console_ws_http_cb(int ws_socket, struct http_request_ctx *request_ctx,
+			      void *user_data);
 
-NET_SOCKET_SERVICE_SYNC_DEFINE_STATIC(host_console_ws_server, ws_server_cb, 1);
+/*
+ * The socket service and HTTP resources need one static definition per
+ * console, so they are generated from the devicetree; the node's
+ * dependency ordinal makes the names unique.
+ */
+#define WS_ID(what, node) UTIL_CAT(console_ws_##what##_, DT_DEP_ORD(node))
 
-static void ws_end_client_connection(struct host_websocket *ws)
+#define CONSOLE_WS_DEFINE(node)							\
+	NET_SOCKET_SERVICE_SYNC_DEFINE_STATIC(WS_ID(svc, node), ws_server_cb, 1); \
+	static struct console_ws WS_ID(ctx, node) = {				\
+		.endpoint = DT_PROP(node, endpoint),				\
+		.ord = DT_DEP_ORD(node),					\
+		.svc = &WS_ID(svc, node),					\
+		.fds = { { .fd = -1 } },					\
+	};									\
+	BUILD_ASSERT(sizeof(DT_PROP(node, label)) +				\
+		     sizeof(DT_PROP(node, endpoint)) + 27 <= 96,		\
+		     "console label and endpoint too long for /consoles");	\
+	/*									\
+	 * Not sure how to size this, the http server docs example has	\
+	 * 1024 bytes, but 256 seems to be okay.				\
+	 */									\
+	static uint8_t WS_ID(buf, node)[256];					\
+	static struct http_resource_detail_websocket WS_ID(detail, node) = {	\
+		.common = {							\
+			.type = HTTP_RESOURCE_TYPE_WEBSOCKET,			\
+			/* We need HTTP/1.1 GET method for upgrading */	\
+			.bitmask_of_supported_http_methods = BIT(HTTP_GET),	\
+		},								\
+		.cb = console_ws_http_cb,					\
+		.data_buffer = WS_ID(buf, node),				\
+		.data_buffer_len = sizeof(WS_ID(buf, node)),			\
+		.user_data = &WS_ID(ctx, node),					\
+	};									\
+	ALL_HTTP_RESOURCE_DEFINE(WS_ID(res, node), DT_PROP(node, endpoint),	\
+				 &WS_ID(detail, node))
+
+DT_FOREACH_STATUS_OKAY(wallabmc_console, CONSOLE_WS_DEFINE)
+
+#define CONSOLE_WS_PTR(node) &WS_ID(ctx, node),
+
+static struct console_ws *const wss[] = {
+	DT_FOREACH_STATUS_OKAY(wallabmc_console, CONSOLE_WS_PTR)
+};
+
+BUILD_ASSERT(ARRAY_SIZE(wss) == NCONSOLE);
+
+K_THREAD_STACK_ARRAY_DEFINE(ws_stacks, NCONSOLE, CONFIG_CONSOLE_BRIDGE_WS_STACK_SIZE);
+
+static void ws_end_client_connection(struct console_ws *ws)
 {
-	LOG_INF("Closing connection to #%d", ws->fds[0].fd);
+	LOG_INF("%s console: closing websocket #%d", ws->c->name, ws->fds[0].fd);
 
-	(void)net_socket_service_unregister(&host_console_ws_server);
+	(void)net_socket_service_unregister(ws->svc);
 	(void)websocket_unregister(ws->fds[0].fd);
 
 	ws->fds[0].fd = -1;
 }
 
-static ssize_t ws_send(struct host_websocket *ws, const void *buf, size_t size, bool block)
+static ssize_t ws_send(struct console_ws *ws, const void *buf, size_t size, bool block)
 {
+	int fd = ws->fds[0].fd;
 	size_t copied = 0;
 	ssize_t ret;
 
-	if (ws->fds[0].fd < 0) {
+	if (fd < 0) {
 		return -ENOTCONN;
 	}
 
@@ -67,8 +119,9 @@ static ssize_t ws_send(struct host_websocket *ws, const void *buf, size_t size, 
 		 * sends, and text requires valid UTF-8 or the websocket connection gets
 		 * closed.
 		 */
-		ret = websocket_send_msg(ws->fds[0].fd, (uint8_t *)buf + copied, size - copied,
-					 WEBSOCKET_OPCODE_DATA_BINARY, false, true, block ? SYS_FOREVER_MS : 0);
+		ret = websocket_send_msg(fd, (uint8_t *)buf + copied, size - copied,
+					 WEBSOCKET_OPCODE_DATA_BINARY, false, true,
+					 block ? SYS_FOREVER_MS : 0);
 		if (ret < 0) {
 			if (errno == EAGAIN && !block)
 				return copied;
@@ -77,7 +130,9 @@ static ssize_t ws_send(struct host_websocket *ws, const void *buf, size_t size, 
 			else
 				ret = -errno;
 			LOG_ERR("Failed to send (err %zd), shutting down", ret);
-			ws_end_client_connection(ws);
+			/* Only this client: a new one may have taken its place */
+			if (ws->fds[0].fd == fd)
+				ws_end_client_connection(ws);
 			return ret;
 		}
 
@@ -87,38 +142,36 @@ static ssize_t ws_send(struct host_websocket *ws, const void *buf, size_t size, 
 	return copied;
 }
 
-static ssize_t ws_recv(struct host_websocket *ws, void *buf, size_t size, bool block)
+static ssize_t ws_recv(struct console_ws *ws, void *buf, size_t size, bool block)
 {
+	int fd = ws->fds[0].fd;
 	ssize_t ret;
 	uint32_t message_type;
 	uint64_t remaining;
 
-	ret = websocket_recv_msg(ws->fds[0].fd, buf, size,
-				&message_type, &remaining, block ? SYS_FOREVER_MS : 0);
+	ret = websocket_recv_msg(fd, buf, size,
+				 &message_type, &remaining, block ? SYS_FOREVER_MS : 0);
 	if (ret < 0) {
 		LOG_DBG("Websocket client error %d", ret);
 		if (errno == EAGAIN && !block)
 			return -EAGAIN;
-		ws_end_client_connection(ws);
+		if (ws->fds[0].fd == fd)
+			ws_end_client_connection(ws);
 		return -errno;
 	} else if (ret == 0) {
 		LOG_DBG("Websocket client closed connection");
-		ws_end_client_connection(ws);
+		if (ws->fds[0].fd == fd)
+			ws_end_client_connection(ws);
 		return 0;
 	}
 
 	return ret;
 }
 
-#define STACK_SIZE K_THREAD_STACK_SIZEOF(socket_send_thread_stack_area)
-#define PRIORITY   CONFIG_CONSOLE_BRIDGE_WS_PRIORITY
-
-static K_THREAD_STACK_DEFINE(socket_send_thread_stack_area, CONFIG_CONSOLE_BRIDGE_WS_STACK_SIZE);
-static struct k_thread socket_send_thread_data;
-
-static void socket_send_thread(void *a, void *b, void *c)
+static void sender_thread(void *a, void *unused1, void *unused2)
 {
-	struct host_websocket *ws = &host_websocket;
+	struct console_ws *ws = a;
+	struct console *c = ws->c;
 	uint64_t pos = 0;
 	uint8_t buf[64];
 
@@ -127,7 +180,7 @@ static void socket_send_thread(void *a, void *b, void *c)
 		size_t copied;
 
 		if (ws->fds[0].fd == -1) {
-			k_event_wait_safe(&events, EVENT_WEBSOCKET_CLIENT, false, K_FOREVER);
+			k_event_wait_safe(&c->events, CONSOLE_EVENT_WS_CLIENT, false, K_FOREVER);
 			continue;
 		}
 
@@ -136,14 +189,15 @@ static void socket_send_thread(void *a, void *b, void *c)
 			pos = 0;
 		}
 
-		ret = host_console_read(buf, sizeof(buf), &pos);
-		if (ret < 0)
+		ret = console_read(c, buf, sizeof(buf), &pos);
+		if (ret < 0) {
+			pos = 0;
 			continue;
+		}
 		if (ret == 0) {
-			k_event_wait_safe(&events,
-					EVENT_WEBSOCKET_CLIENT |
-					EVENT_CONSOLE_LOG_DATA,
-					false, K_FOREVER);
+			k_event_wait_safe(&c->events,
+					  CONSOLE_EVENT_WS_CLIENT | CONSOLE_EVENT_DATA_WS,
+					  false, K_FOREVER);
 			continue;
 		}
 
@@ -156,7 +210,6 @@ again:
 		ret = ws_send(ws, buf + copied, nr - copied, true);
 		if (ret < 0) {
 			LOG_WRN("Socket send error: %d ret: %zd", errno, ret);
-			ws_end_client_connection(ws);
 			continue;
 		}
 
@@ -174,10 +227,10 @@ static uint8_t ws_recv_buf[WS_RX_BUF_SIZE];
 static void ws_server_cb(struct net_socket_service_event *evt)
 {
 	net_socklen_t optlen = sizeof(int);
-	struct host_websocket *ws;
+	struct console_ws *ws;
 	int sock_error;
 
-	ws = (struct host_websocket *)evt->user_data;
+	ws = (struct console_ws *)evt->user_data;
 
 	if ((evt->event.revents & ZSOCK_POLLERR) ||
 	    (evt->event.revents & ZSOCK_POLLNVAL)) {
@@ -203,13 +256,14 @@ static void ws_server_cb(struct net_socket_service_event *evt)
 		if (ret <= 0)
 			return;
 
-		ret = host_console_write(ws_recv_buf, ret);
+		console_write(ws->c, ws_recv_buf, ret);
 	}
 }
 
-static int console_ws_http_cb(int ws_socket, struct http_request_ctx *request_ctx, void *user_data)
+static int console_ws_http_cb(int ws_socket, struct http_request_ctx *request_ctx,
+			      void *user_data)
 {
-	struct host_websocket *ctx = user_data;
+	struct console_ws *ctx = user_data;
 	int ret;
 
 	if (ws_socket < 0) {
@@ -217,12 +271,17 @@ static int console_ws_http_cb(int ws_socket, struct http_request_ctx *request_ct
 		return -EBADF;
 	}
 
+	if (!ctx->c) {
+		LOG_ERR("%s: console not running", ctx->endpoint);
+		return -ENODEV;
+	}
+
 	ret = ws_validate_auth(ws_socket, request_ctx, user_data);
 	if (ret < 0)
 		return ret;
 
 	if (ctx->fds[0].fd >= 0) {
-		/* There is already a websocket connection to this shell,
+		/* There is already a websocket connection to this console,
 		 * kick the previous connection out.
 		 */
 		ws_end_client_connection(ctx);
@@ -232,15 +291,14 @@ static int console_ws_http_cb(int ws_socket, struct http_request_ctx *request_ct
 	ctx->fds[0].events = ZSOCK_POLLIN;
 	ctx->new_client = true;
 
-	ret = net_socket_service_register(&host_console_ws_server, ctx->fds,
-					  ARRAY_SIZE(ctx->fds), ctx);
+	ret = net_socket_service_register(ctx->svc, ctx->fds, ARRAY_SIZE(ctx->fds), ctx);
 	if (ret < 0) {
 		LOG_ERR("Failed to register socket service, %d", ret);
 		goto error;
 	}
 
-	LOG_INF("%s connected client", __func__);
-	k_event_post(&events, EVENT_WEBSOCKET_CLIENT);
+	LOG_INF("%s console: websocket client connected", ctx->c->name);
+	k_event_post(&ctx->c->events, CONSOLE_EVENT_WS_CLIENT);
 
 	return 0;
 
@@ -253,46 +311,85 @@ error:
 	return ret;
 }
 
-/*
- * Not sure how to size this, the http server docs example has 1024
- * bytes, but 256 seems to be okay. Could it be possible that large
- * ws packets fail? Would need to test a bulk send from the client
- * end (paste into terminal or use wscat perhaps).
- */
-static uint8_t ws_recv_buf_console_service[256];
+/* GET /consoles: the running consoles for the web UI, as JSON */
+static int consoles_handler(struct http_client_ctx *client,
+			    enum http_transaction_status status,
+			    const struct http_request_ctx *request_ctx,
+			    struct http_response_ctx *response_ctx,
+			    void *user_data)
+{
+	static const struct http_header headers[] = {
+		{ .name = "content-type", .value = "application/json" },
+		{ .name = "cache-control", .value = "no-cache" },
+	};
+	/* The HTTP server runs handlers on one thread and sends the body before returning */
+	static char body[NCONSOLE * 96 + 4];
+	size_t len = 0;
+	bool first = true;
+	int i;
 
-struct http_resource_detail_websocket ws_res_detail_console_service = {
+	if (status == HTTP_SERVER_TRANSACTION_COMPLETE ||
+	    status == HTTP_SERVER_TRANSACTION_ABORTED)
+		return 0;
+
+	len += snprintf(body + len, sizeof(body) - len, "[");
+	for (i = 0; i < NCONSOLE; i++) {
+		const struct console *c = &consoles[i];
+
+		if (!c->ready)
+			continue;
+		len += snprintf(body + len, sizeof(body) - len,
+				"%s{\"label\":\"%s\",\"endpoint\":\"%s\"}",
+				first ? "" : ",", c->name, c->endpoint);
+		len = MIN(len, sizeof(body) - 1);
+		first = false;
+	}
+	len += snprintf(body + len, sizeof(body) - len, "]");
+	len = MIN(len, sizeof(body) - 1);
+
+	response_ctx->status = HTTP_200_OK;
+	response_ctx->headers = headers;
+	response_ctx->header_count = ARRAY_SIZE(headers);
+	response_ctx->body = body;
+	response_ctx->body_len = len;
+	response_ctx->final_chunk = true;
+
+	return 0;
+}
+
+static struct http_resource_detail_dynamic consoles_detail = {
 	.common = {
-		.type = HTTP_RESOURCE_TYPE_WEBSOCKET,
-
-		/* We need HTTP/1.1 GET method for upgrading */
+		.type = HTTP_RESOURCE_TYPE_DYNAMIC,
 		.bitmask_of_supported_http_methods = BIT(HTTP_GET),
 	},
-	.cb = console_ws_http_cb,
-	.data_buffer = ws_recv_buf_console_service,
-	.data_buffer_len = sizeof(ws_recv_buf_console_service),
-	.user_data = &host_websocket,
+	.cb = consoles_handler,
 };
-ALL_HTTP_RESOURCE_DEFINE(host_console_ws, "/console/host",
-			 &ws_res_detail_console_service);
+ALL_HTTP_RESOURCE_DEFINE(consoles, "/consoles", &consoles_detail);
 
 int console_bridge_ws_init(void)
 {
-	if (!host_console_available())
-		return -ENODEV;
+	int i, j;
 
-	LOG_INF("Starting host console websocket");
+	for (i = 0; i < NCONSOLE; i++) {
+		struct console_ws *ws = wss[i];
+		char name[24];
 
-	memset(&host_websocket, 0, sizeof(host_websocket));
-	host_websocket.fds[0].fd = -1;
+		for (j = 0; j < NCONSOLE; j++) {
+			if (consoles[j].ord == ws->ord)
+				break;
+		}
+		if (j == NCONSOLE || !consoles[j].ready)
+			continue;
+		ws->c = &consoles[j];
 
-	k_thread_create(&socket_send_thread_data, socket_send_thread_stack_area,
-			STACK_SIZE,
-			socket_send_thread,
-			NULL, NULL, NULL,
-			CONFIG_CONSOLE_BRIDGE_WS_PRIORITY, 0, K_NO_WAIT);
-
-	k_thread_name_set(&socket_send_thread_data, "websocket_send");
+		k_thread_create(&ws->sender, ws_stacks[i],
+				K_THREAD_STACK_SIZEOF(ws_stacks[i]),
+				sender_thread, ws, NULL, NULL,
+				CONFIG_CONSOLE_BRIDGE_WS_PRIORITY, 0, K_NO_WAIT);
+		snprintf(name, sizeof(name), "%s ws", ws->c->name);
+		k_thread_name_set(&ws->sender, name);
+		LOG_INF("%s console: websocket at %s", ws->c->name, ws->endpoint);
+	}
 
 	return 0;
 }

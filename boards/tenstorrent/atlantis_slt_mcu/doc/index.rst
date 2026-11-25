@@ -14,7 +14,8 @@ Hardware
 - 8 MHz HSE crystal, 32.768 kHz LSE crystal, coin-cell backed RTC
 - TI DP83826E 10/100 Ethernet PHY (MII)
 - MCU console UART on the FT4232H (channel C) and header J70
-- USART2/USART3 to the Atlantis SoC UART0/UART1 through SN74CB3Q3253 muxes
+- USART2/USART3 to the Atlantis SoC UART0/UART1 through SN74CB3Q3253 muxes;
+  UART1 is the host console (TCP port 22), UART0 the RCPU console (23)
 - SWD on the FT4232H (channel A) and header J61
 - TMP117 temperature sensor and M24M01 EEPROM on I2C
 - GPIO control of the SoC power rails, reset, JTAG/UART/QSPI/SD muxes

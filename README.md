@@ -17,7 +17,7 @@ WallaBMC is designed for embedded systems requiring BMC capabilities without the
 * **BMC Console**: Management console accessible via serial or web interface
 * **Persistent Configuration**: Settings stored across reboots
 * **Host Power Control**: Power on/off management for host systems
-* **Host Console**: Serial console access
+* **Host Consoles**: Serial console access
 
 ### Hardware Support
 
@@ -138,10 +138,16 @@ wallabmc commands.
 The websocket BMC shell endpoint URL is /console/bmc and supports ws and
 wss if ``CONFIG_APP_HTTPS`` (e.g., ``wss://wallabmc.local.net/console/bmc``).
 
-### Host serial console
+### Host serial consoles
 
-The websocket host console endpoint URL is /console/host and supports ws and
-wss if ``CONFIG_APP_HTTPS`` (e.g., ``wss://wallabmc.local.net/console/host``).
+Each ``wallabmc,console`` devicetree node is a host UART the BMC logs into
+a ring buffer and serves raw on the node's TCP ``port`` (``nc <bmc> 22``)
+and on a websocket at the node's ``endpoint``, ws or wss if
+``CONFIG_APP_HTTPS`` (e.g., ``wss://wallabmc.local.net/console/host``).
+``GET /consoles`` lists them as JSON and the web UI shows one terminal per
+console. Boards with one console use port 22 and /console/host; the
+Atlantis boards add the RCPU console on port 23 and /console/rcpu. See
+[the bindings](dts/bindings/).
 
 ### BMC shell settings and configuration
 

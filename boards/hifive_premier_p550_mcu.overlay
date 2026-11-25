@@ -27,6 +27,15 @@
         };
     };
 
+    console_host: console-host {
+        compatible = "wallabmc,console";
+        label = "Host";
+        uart = <&usart6>;
+        port = <22>;
+        endpoint = "/console/host";
+        mux-select = <&uartmuxsel>;
+    };
+
     aliases {
         jtagtck = &jtagtck;
         jtagtms = &jtagtms;
@@ -37,9 +46,6 @@
         power-gpio-2 = &atxpson;
         power-led = &red_led;
         status-led = &blue_led;
-
-	host-console-uart = &usart6;
-	host-console-uart-muxsel = &uartmuxsel;
     };
 
 };

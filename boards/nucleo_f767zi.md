@@ -9,10 +9,10 @@ and log messages, and can be used to query and configure the device.
 ### Host serial console
 
 The Nucleo has USART6 connected to pins D0/D1 RX/TX on the CN10 connector.
-WallaBMC uses this as the host serial console which can be accessed with
-the WebUI terminal or telnet port 22. The pins would have to be connected
-to something useful (e.g., each other have a loopback UART that echoes back
-what is transmitted to it).
+WallaBMC uses this as the host serial console which can be accessed with the
+WebUI terminal or raw TCP port 22 (``nc``, not ``telnet``). The pins would
+have to be connected to something useful (e.g., each other have a loopback
+UART that echoes back what is transmitted to it).
 
 ### Building
 ```

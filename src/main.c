@@ -491,12 +491,6 @@ int main(void)
 	 * generally gated by the boot_finished flag so it should not race with
 	 * auto poweron either.
 	 */
-	LOG_DBG("HTTP server init");
-	if (app_http_server_init() < 0) {
-		LOG_ERR("HTTP server init failed");
-		fail_status = true;
-	}
-
 	LOG_DBG("Console bridge init");
 	if (console_bridge_init() < 0) {
 		LOG_ERR("Console bridge init failed");
@@ -506,6 +500,12 @@ int main(void)
 	LOG_DBG("Console bridge WS init");
 	if (console_bridge_ws_init() < 0) {
 		LOG_ERR("Console bridge WS init failed");
+		fail_status = true;
+	}
+
+	LOG_DBG("HTTP server init");
+	if (app_http_server_init() < 0) {
+		LOG_ERR("HTTP server init failed");
 		fail_status = true;
 	}
 
