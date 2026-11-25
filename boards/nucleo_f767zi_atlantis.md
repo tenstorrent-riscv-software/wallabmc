@@ -22,8 +22,14 @@ west build -p --sysbuild -b nucleo_f767zi/stm32f767xx/atlantis
 
 As for the Nucleo F767ZI. The flash layout differs from the plain
 `nucleo_f767zi` build, so when changing between the two flash both MCUboot
-and WallaBMC. The stored settings are in a different place and do not carry
-over.
+and WallaBMC.
+
+Do not expect the stored settings to carry over. The variant keeps them in
+sectors 2 and 3 (0x10000 to 0x1ffff) and the plain build in sectors 1 to 3
+(0x8000 to 0x1ffff). Flashing does not erase the sectors the two share, so
+the other build's settings may be lost, or old ones may come back. For a
+clean setup run `config clear_and_reboot` in the BMC shell after changing
+builds.
 
 ### What is limited to match the STM32F746ZG
 
