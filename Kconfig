@@ -88,8 +88,6 @@ config APP_CRYPTO_TLS13
 	select MBEDTLS_SSL_EARLY_DATA
         select MBEDTLS_SSL_SESSION_TICKETS
 	select PSA_WANT_ALG_HKDF
-	select PSA_WANT_ALG_HKDF_EXTRACT
-	select PSA_WANT_ALG_HKDF_EXPAND
 
 config APP_CRYPTO_PUBLIC_KEY
 	bool
@@ -105,8 +103,6 @@ config APP_CRYPTO_PUBLIC_KEY
 	# Plus CHACHA20
 	select PSA_WANT_ALG_CHACHA20_POLY1305
 	select PSA_WANT_KEY_TYPE_CHACHA20
-	# Required for websocket
-	select PSA_WANT_ALG_SHA_1 if HTTP_SERVER_WEBSOCKET
 
 # TF-PSA-Crypto options that Zephyr has no Kconfig for: mbedTLS thread
 # safety (see src/crypto_threading.c), needed whenever mbedTLS is used,
@@ -128,7 +124,6 @@ config APP_CRYPTO_DEBUG
 	default n
 	select MBEDTLS_DEBUG
 	select MBEDTLS_MEMORY_DEBUG
-	select NET_SOCKETS_TLS_LOG_LEVEL_DBG
 
 config MBEDTLS_DEBUG_LEVEL
 	int
@@ -340,9 +335,6 @@ config APP_WEB_TERMINAL
 	default y
 	select APP_WEB
 	select HTTP_SERVER_WEBSOCKET
-	# WS auth protocol requires these hashes
-	select BASE64
-	select MBEDTLS_SHA1
 
 config APP_WEB_TERMINAL_BMC_SHELL
 	bool "Zephyr shell websocket and webui terminal"
