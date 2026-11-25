@@ -9,6 +9,8 @@ on:
 
 permissions:
   contents: read
+  # To fetch the size numbers of main's build
+  actions: read
 
 jobs:
   check-spdx:
@@ -62,7 +64,7 @@ jobs:
             echo "Error: Could not find Zephyr SDK in /opt/toolchains"
             exit 1
           fi
-          echo "ZEPHYR_SDK_INSTALL_DIR=$SDK_PATH" >> $GITHUB_ENV
+          echo "ZEPHYR_SDK_INSTALL_DIR=$SDK_PATH" >> "$GITHUB_ENV"
 
       - name: Create Workspace Directory
         run: mkdir workspace
@@ -98,8 +100,19 @@ jobs:
       - name: Build WallaBMC (sysbuild boards)
         if: ${{ matrix.name != 'qemu_cortex_m3' && matrix.name != 'xiao_esp32c6' }}
         working-directory: workspace
+        shell: bash
         run: |
-          west build --sysbuild -p always -b $BOARD ../wallabmc
+          west build --sysbuild -p always -b "$BOARD" ../wallabmc 2>&1 | tee build.log
+          for report in rom_report ram_report; do
+            west build -t $report --domain wallabmc > $report.log 2>&1 || {
+              echo "::warning::$report failed for $BOARD"
+              cat $report.log
+            }
+          done
+          python3 ../wallabmc/scripts/size_report.py collect \
+            --board ${{ matrix.name }} --log build.log \
+            --image wallabmc=build/wallabmc --image mcuboot=build/mcuboot \
+            -o size-${{ matrix.name }}.json
           mv build/mcuboot/zephyr/zephyr.hex build/mcuboot.hex
           mv build/mcuboot/zephyr/zephyr.bin build/mcuboot.bin
           mv build/mcuboot/zephyr/zephyr.elf build/mcuboot.elf
@@ -112,10 +125,27 @@ jobs:
       - name: Build WallaBMC (no-sysbuild boards)
         if: ${{ matrix.name == 'qemu_cortex_m3' || matrix.name == 'xiao_esp32c6' }}
         working-directory: workspace
+        shell: bash
         run: |
           # qemu_cortex_m3 and xiao_esp32c6 are listed in NO_SYSBUILD_BOARDS;
           # xiao uses Espressif Simple Boot rather than MCUboot.
-          west build -p always -b $BOARD ../wallabmc
+          west build -p always -b "$BOARD" ../wallabmc 2>&1 | tee build.log
+          for report in rom_report ram_report; do
+            west build -t $report > $report.log 2>&1 || {
+              echo "::warning::$report failed for $BOARD"
+              cat $report.log
+            }
+          done
+          python3 ../wallabmc/scripts/size_report.py collect \
+            --board ${{ matrix.name }} --log build.log \
+            --image wallabmc=build \
+            -o size-${{ matrix.name }}.json
+
+      - name: Upload Size Data
+        uses: actions/upload-artifact@v7
+        with:
+          name: size-${{ matrix.name }}
+          path: workspace/size-${{ matrix.name }}.json
 
       - name: Upload Sysbuild Firmware
         if: ${{ matrix.name != 'qemu_cortex_m3' && matrix.name != 'xiao_esp32c6' }}
@@ -140,6 +170,80 @@ jobs:
           path: |
             workspace/build/zephyr/zephyr.bin
             workspace/build/zephyr/zephyr.elf
+
+  size-report:
+    runs-on: ubuntu-latest
+
+    needs: build
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      # What this build should be compared against: the tip of main for a
+      # pull request, the previous commit for a push to main. Other builds
+      # are compared against whatever main's newest build is.
+      BASE_SHA: ${{ github.event.pull_request.base.sha || (github.ref == 'refs/heads/main' && github.event.before) || '' }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download Size Data
+        uses: actions/download-artifact@v8
+        with:
+          pattern: size-*
+          path: sizes/head
+          merge-multiple: true
+
+      - name: Fetch Baseline From main
+        run: |
+          # The baseline is whatever the build of main last uploaded, so it
+          # moves forward each time something is merged. Prefer the run for
+          # the exact base commit, and fall back to the newest one.
+          mkdir -p sizes/base
+          # Not being able to ask is not worth failing the build over.
+          if ! runs=$(gh api "repos/$REPO/actions/workflows/build.yml/runs?branch=main&status=success&per_page=50"); then
+            echo "::warning::Could not list the builds of main, reporting without a baseline"
+            runs='{}'
+          fi
+          run=$(jq -c --arg sha "$BASE_SHA" '
+            [(.workflow_runs // [])[] | select(.event == "push" or .event == "schedule")] |
+            (map(select(.head_sha == $sha))[0] // .[0] // empty) |
+            {id, head_sha}' <<<"$runs")
+          base_sha=
+          if [ -n "$run" ]; then
+            id=$(jq -r .id <<<"$run")
+            if gh run download "$id" --repo "$REPO" --pattern 'size-*' --dir sizes/base; then
+              base_sha=$(jq -r .head_sha <<<"$run")
+            else
+              echo "Run $id on main has no size data"
+            fi
+          else
+            echo "No successful build of main found"
+          fi
+          if [ -n "$BASE_SHA" ] && [ -n "$base_sha" ] && [ "$base_sha" != "$BASE_SHA" ]; then
+            echo "::notice::No finished build of $BASE_SHA, comparing with main at $base_sha instead"
+          fi
+          jq -n --arg pr "$PR_NUMBER" --arg sha "$base_sha" --arg wanted "$BASE_SHA" \
+            '{pr: (($pr | tonumber?) // null), base_sha: $sha, wanted_sha: $wanted}' > sizes/meta.json
+          cat sizes/meta.json
+
+      - name: Summarise
+        run: |
+          python3 scripts/size_report.py compare \
+            --head sizes/head --base sizes/base \
+            --base-sha "$(jq -r .base_sha sizes/meta.json)" \
+            --wanted-base-sha "$(jq -r .wanted_sha sizes/meta.json)" >> "$GITHUB_STEP_SUMMARY"
+
+      # A pull request from a fork cannot comment on itself. The Size Comment
+      # workflow picks this up and does it.
+      - name: Upload Report Data
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: pr-size-report
+          path: sizes
 
   test:
     runs-on: ubuntu-latest
