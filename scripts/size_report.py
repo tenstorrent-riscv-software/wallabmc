@@ -64,6 +64,46 @@ PRIMARY_REGIONS = {"FLASH", "RAM", "sram0_0_seg"}
 # this many bytes.
 NOISE_BYTES = 32
 
+# The board whose memory use is drawn at the top of the short report.
+FEATURED_BOARD = "atlantis_evb_mcu"
+BAR_WIDTH = 30
+
+# What the featured board's flash is divided into: the name, a short name
+# and a square for the bar, and the rom_report paths that belong to it.
+# The first match wins. There are only eight coloured squares.
+COMPONENTS = [
+    (
+        "Crypto (mbedTLS)",
+        "Crypto",
+        "🟦",
+        ("WORKSPACE/modules/crypto/", "ZEPHYR_BASE/modules/mbedtls/"),
+    ),
+    ("Networking", "Networking", "🟪", ("ZEPHYR_BASE/subsys/net/",)),
+    ("WallaBMC", "WallaBMC", "🟧", ("WORKSPACE/wallabmc/",)),
+    (
+        "Drivers and HAL",
+        "Drivers",
+        "🟩",
+        ("ZEPHYR_BASE/drivers/", "WORKSPACE/modules/hal/"),
+    ),
+    # Symbols with no path come from the C library and the compiler.
+    ("libc and libgcc", "libc", "🟨", ("(no paths)/",)),
+    (
+        "Kernel and arch",
+        "Kernel",
+        "🟥",
+        ("ZEPHYR_BASE/kernel/", "ZEPHYR_BASE/arch/", "ZEPHYR_BASE/soc/"),
+    ),
+    ("Shell", "Shell", "🟫", ("ZEPHYR_BASE/subsys/shell/",)),
+]
+OTHER = "Other"
+# What rom_report could not name, and what it left out. The bar draws it
+# as part of Other.
+UNATTRIBUTED = "Unattributed"
+OTHER_SQUARE = "⬛"
+FREE_SQUARE = "⬜"
+COMPONENT_BAR_WIDTH = 12
+
 TOP_SYMBOLS = 10
 MAX_CONFIG_LINES = 100
 MAX_REPORT = 60000
@@ -191,6 +231,16 @@ def collect(args):
         for region, v in image["regions"].items():
             if v["used"]:
                 print(f"{args.board} {name} {region}: {v['used']} / {v['size']}")
+
+    # Draw it as well. There is no baseline here, so no changes are shown.
+    rows, _ = rows_for(result["images"], {})
+    chart = bars(rows)
+    if chart:
+        print("", f"{args.board} memory use:", "", *chart, sep="\n")
+    parts = breakdown(result["images"], {})
+    if parts:
+        bar, legend, lines = parts
+        print("", bar, legend, "", *lines, sep="\n")
 
 
 def clean(text, limit=160):
@@ -331,6 +381,125 @@ def trim(rows):
     """Drop the rows that the short report leaves out."""
     kept = [r for r in rows if r["kind"] == "primary" or row_delta(r)]
     return kept or rows
+
+
+def bars(rows):
+    """A bar for each main region of the application, as lines of text."""
+    rows = [
+        r
+        for r in rows
+        if r["kind"] == "primary" and r["image"] == "wallabmc" and r["size"]
+    ]
+    if not rows:
+        return []
+    width = max(len(r["label"]) for r in rows)
+    out = []
+    for r in rows:
+        used = min(max(r["used"] / r["size"], 0), 1)
+        full = round(used * BAR_WIDTH)
+        line = (
+            f"{r['label']:<{width}}  "
+            + "\u2588" * full
+            + "\u2591" * (BAR_WIDTH - full)
+            + f"  {used:.1%} of {num(r['size'])}"
+        )
+        d = row_delta(r)
+        if d:
+            line += f" ({d:+,})"
+        out.append(line)
+    return out
+
+
+def components(image):
+    """Flash use of an image by component, or None without a rom report."""
+    symbols = image.get("symbols") if isinstance(image, dict) else None
+    symbols = symbols.get("rom") if isinstance(symbols, dict) else None
+    if not isinstance(symbols, dict) or not symbols:
+        return None
+
+    totals = {name: 0 for name, _, _, _ in COMPONENTS}
+    totals[OTHER] = 0
+    totals[UNATTRIBUTED] = 0
+    for path, size in symbols.items():
+        path = str(path)
+        where = OTHER
+        if path.startswith("(hidden)"):
+            where = UNATTRIBUTED
+        for name, _, _, prefixes in COMPONENTS:
+            if path.startswith(prefixes):
+                where = name
+                break
+        totals[where] += max(as_int(size), 0)
+
+    # Make the parts add up to what the linker says is used.
+    flash = get({"i": image}, "i", "regions", "FLASH")
+    used = as_int(flash.get("used")) if isinstance(flash, dict) else 0
+    totals[UNATTRIBUTED] += max(used - sum(totals.values()), 0)
+    return totals
+
+
+def share_cells(sizes, cells, unit):
+    """Divide a number of bar cells between sizes, at least one for each."""
+    exact = [min(s / unit, BAR_WIDTH) for s in sizes]
+    alloc = [max(int(e), 1) if s else 0 for e, s in zip(exact, sizes)]
+    while sum(alloc) < cells:
+        i = max(range(len(alloc)), key=lambda i: exact[i] - alloc[i])
+        alloc[i] += 1
+    while sum(alloc) > cells:
+        over = [i for i in range(len(alloc)) if alloc[i] > 1]
+        if not over:
+            break
+        i = min(over, key=lambda i: exact[i] - alloc[i])
+        alloc[i] -= 1
+    return alloc
+
+
+def breakdown(head, base):
+    """A board's flash by component: the bar, its legend and table lines."""
+    totals = components(head.get("wallabmc"))
+    flash = get(head, "wallabmc", "regions", "FLASH")
+    size = as_int(flash.get("size")) if isinstance(flash, dict) else 0
+    if not totals or size <= 0 or not any(totals.values()):
+        return None
+    before = components(base.get("wallabmc")) or {}
+    used = sum(totals.values())
+
+    def change(*names, noise=0):
+        if not before:
+            return ""
+        d = sum(totals[n] - before.get(n, 0) for n in names)
+        return f"{d:+,}" if abs(d) > noise else ""
+
+    # The bar: a square for each share of the region, then a legend.
+    parts = [(short, sq, (name,)) for name, short, sq, _ in COMPONENTS]
+    parts.append((OTHER, OTHER_SQUARE, (OTHER, UNATTRIBUTED)))
+    parts = [p for p in parts if any(totals[n] for n in p[2])]
+    sizes = [sum(totals[n] for n in names) for _, _, names in parts]
+    cells = min(round(used / size * BAR_WIDTH), BAR_WIDTH)
+    alloc = share_cells(sizes, cells, size / BAR_WIDTH)
+    bar = "".join(sq * n for (_, sq, _), n in zip(parts, alloc))
+    bar += FREE_SQUARE * max(BAR_WIDTH - sum(alloc), 0)
+    legend = []
+    for short, sq, names in parts:
+        d = change(*names, noise=NOISE_BYTES)
+        legend.append(f"{sq} {short}" + (f" ({d})" if d else ""))
+    legend.append(f"{FREE_SQUARE} Free")
+
+    # The table: every component, with what the bar cannot show.
+    rows = [(name, totals[name]) for name in totals if totals[name]]
+    width = max(len(name) for name, _ in rows)
+    largest = max(n for _, n in rows)
+    lines = []
+    for name, n in rows:
+        blocks = "\u2588" * max(round(n / largest * COMPONENT_BAR_WIDTH), 1)
+        line = (
+            f"{name:<{width}}  {blocks:<{COMPONENT_BAR_WIDTH}}"
+            f"  {num(n):>9}  {n / used:>4.0%}"
+        )
+        d = change(name)
+        lines.append(line + (f"  {d}" if d else ""))
+
+    return bar, " · ".join(legend), lines
 
 
 def table(entries, short):
@@ -510,6 +679,29 @@ def compare(args):
         if entries:
             out += ["", *table(entries, short=False)]
     else:
+        for board, _, rows in entries:
+            if board == FEATURED_BOARD:
+                chart = bars(rows)
+                if not chart:
+                    continue
+                out += ["", f"`{board}` memory use:", "", "```", *chart, "```"]
+                parts = breakdown(head[board], base.get(board, {}))
+                if parts:
+                    bar, legend, lines = parts
+                    out += [
+                        "",
+                        bar,
+                        "",
+                        legend,
+                        "",
+                        "<details><summary>Flash by component</summary>",
+                        "",
+                        "```",
+                        *lines,
+                        "```",
+                        "",
+                        "</details>",
+                    ]
         if quiet:
             plural = "s" * (len(quiet) != 1)
             small = f" of more than {NOISE_BYTES} bytes" if noise else ""
