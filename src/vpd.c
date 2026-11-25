@@ -34,6 +34,7 @@ static int cmd_vpd_show(const struct shell *sh, size_t argc, char **argv)
 	shell_print(sh, "BMC UUID: %s", uuid);
 	shell_print(sh, "BMC version: %s", PROJECT_GIT_SHA);
 	shell_print(sh, "BMC Zephyr version: %s", BANNER_VERSION);
+	shell_print(sh, "BMC board target: %s", CONFIG_BOARD_TARGET);
 	return 0;
 }
 
