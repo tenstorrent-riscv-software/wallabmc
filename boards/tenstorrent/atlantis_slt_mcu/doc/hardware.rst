@@ -178,10 +178,23 @@ Implemented in WallaBMC
      - ``tj_max``, ``fault`` of ``power_sequencer``
      - SoC junction over-temperature output through U61; a rising edge
        while the host runs powers it off (see Power)
-   * - PF12/PF11/PF13/PF14
-     - STM32_JTAG0_TCK/TMS/TDI/TDO
-     - ``jtag0_*`` / ``jtagtck`` etc.
-     - RCPU JTAG bit-bang (TCP port 7777), needs mux select 01
+   * - PG10/PG9/PG11/PG12/PG13
+     - STM32_JTAG1_TCK/TMS/TDI/TDO/TRST
+     - ``jtag1_*``, ``jtag_ascalon``
+     - Ascalon JTAG bit-bang, TCP port 7777, the default chain (see JTAG)
+   * - PA11 / PA12
+     - SYS_JTAG1_SEL0 / SEL1
+     - ``sys_jtag1_sel*``, ``select`` of ``jtag_ascalon``
+     - Ascalon JTAG mux select: 01 (MCU) while a client is connected,
+       input otherwise so SW3 decides
+   * - PF12/PF11/PF13/PF14/PF15
+     - STM32_JTAG0_TCK/TMS/TDI/TDO/TRST
+     - ``jtag0_*``, ``jtag_rcpu``
+     - RCPU JTAG bit-bang, TCP port 7778
+   * - PA5 / PA6
+     - SYS_JTAG0_SEL0 / SEL1
+     - ``sys_jtag0_sel*``, ``select`` of ``jtag_rcpu``
+     - RCPU JTAG mux select, same scheme
    * - PA1,PA2,PA7,PB0,PB1,PB11-PB13,PC1-PC5,PE2
      - ETH_MII_* / ETH_MDC / ETH_MII_MDIO
      - ``mac``, ``mdio``
@@ -224,16 +237,6 @@ Defined in the DTS, not yet used
      - Bidir
      - SoC GPIO_DATA[2/8/11/12] through auto-direction shifters. GPIO11/12
        also on header J53 pins 3/1
-   * - PA5 / PA6
-     - SYS_JTAG0_SEL0 / SEL1
-     - ``sys_jtag0_sel*``
-     - Out
-     - RCPU JTAG mux select
-   * - PA11 / PA12
-     - SYS_JTAG1_SEL0 / SEL1
-     - ``sys_jtag1_sel*``
-     - Out
-     - Ascalon JTAG mux select
    * - PF6-PF9, PB2, PB6
      - STM_QSPI_*
      - ``quadspi`` (disabled)
@@ -287,8 +290,7 @@ Not connected or spare
 PA0, PB5, PB9, PB10, PB15, PD4, PD7, PF5 and PG14 only reach test points
 M24-M32. The eFuse enable from U42 ADBUS4 is behind the
 unpopulated 0R link R814. PC13 is unconnected. PA15 and PB4 have 4.7K
-pull-ups only. PF15 (STM32_JTAG0_TRST) and the JTAG1 pins PG9 to PG13 are
-wired but not in the DTS (see JTAG).
+pull-ups only.
 
 Ethernet
 ========
@@ -590,13 +592,47 @@ encoding as the UART mux (SEL1:SEL0 00 FT4232 U73, 01 MCU, 10 header,
      - SW3
      - J73
 
-WallaBMC's ``jtagtck``/``jtagtms``/``jtagtdi``/``jtagtdo`` aliases point at
-JTAG0. The select lines are not driven by the firmware yet. With both SW2
-sections OFF the selects idle at 11 and no source reaches the SoC, so until
-``jtag.c`` drives PA6 low and PA5 high on client connect, give JTAG0 to the
-MCU by hand: SW2 section on SEL1 ON, section on SEL0 OFF. Hogging the
-selects was avoided because it would cut the USB JTAG path that bring-up
-relies on.
+WallaBMC serves both chains to OpenOCD's ``remote_bitbang`` driver, one
+TCP port each (``wallabmc,jtag`` nodes in
+``boards/tenstorrent/common/atlantis_wallabmc.dtsi``):
+
+.. list-table::
+   :header-rows: 1
+
+   * - Chain
+     - Node
+     - TCP port
+     - OpenOCD config
+   * - JTAG1 (Ascalon)
+     - ``jtag_ascalon``
+     - 7777
+     - ``boards/tenstorrent/common/openocd/ascalon.cfg``
+   * - JTAG0 (RCPU)
+     - ``jtag_rcpu``
+     - 7778
+     - ``boards/tenstorrent/common/openocd/rcpu.cfg``
+
+The Ascalon CPU is the default chain and keeps the port the daemon has
+always used. Each daemon leaves its TCK/TMS/TDI/TDO/TRST pins and its
+select lines as inputs until a client connects, so SW2/SW3 choose the
+source between sessions; it then drives TCK and TDI low and TMS high,
+releases TRST, drives the selects to 01, and undoes both when the
+client goes away. The ``remote_bitbang`` reset commands drive TRST;
+SRST is not wired to the daemon, the host reset belongs to the
+sequencer (see SoC reset). The bridge has no TRST on the Ascalon chain
+(U80 1B1 carries only pull-up R694), so the USB path cannot assert it;
+the BMC (01) and header J73 (10) can.
+``boards/tenstorrent/common/openocd/README.md`` covers the host side.
+
+Each switch section grounds its select line through 499R (R626/R627 for
+JTAG0, R636/R637 for JTAG1) against a 4.7K pull-up (R607/R608,
+R634/R635), so the MCU overrides either position with at most 6.6 mA
+per line while a client is connected. Leave the switches all ON
+unless a probe sits on J40/J73 (section 1 ON, section 2 OFF): with
+both sections OFF the selects read 11, the mux outputs float into the
+level shifters U64/U77 and the SoC's JTAG inputs are
+undefined, whereas 00 parks the chain on the FT4232, whose pull-ups
+hold every line high.
 
 Boot mode
 =========
@@ -727,7 +763,8 @@ Jumpers and switches
    * - SW2 / SW3 / SW4
      - JTAG0 / JTAG1 / UART mux selects
      - One section per SEL line; ON grounds it (0), OFF pulls it up (1).
-       Both ON = FT4232, both OFF = no source; the MCU overrides either
+       Both ON = FT4232, 1 OFF / 2 ON = MCU, 1 ON / 2 OFF = header, both
+       OFF = no source; the MCU overrides either when it drives a line
    * - B1
      - 12 V eFuse disable
      - board power cycle
@@ -880,7 +917,6 @@ Feature work
    100 ms P5V off delay.
 #. Persist the host power state across BMC reboots so the host can be
    brought back after a BMC reset, which powers it off.
-#. Drive the JTAG mux selects from the JTAG daemon.
 #. TMP117 and EEPROM support on ``i2c2`` (board temperature, identity).
 #. PMBus telemetry over ``i2c4`` when J67/J68 give the bus to the MCU.
 #. QSPI flash programming and SD slot S2 access through the muxes.

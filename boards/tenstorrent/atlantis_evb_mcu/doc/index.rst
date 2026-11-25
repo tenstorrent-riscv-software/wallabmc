@@ -22,6 +22,7 @@ Hardware
 - TMP117 temperature sensor and M24M01 EEPROM on I2C
 - GPIO control of the ATX PS_ON, the SoC power rails, reset, boot mode,
   M.2 slot power and the JTAG/UART/QSPI/SD muxes
+- Bit-bang JTAG to both SoC chains for OpenOCD (TCP ports 7777 and 7778)
 
 See :doc:`hardware` for the complete pin map.
 

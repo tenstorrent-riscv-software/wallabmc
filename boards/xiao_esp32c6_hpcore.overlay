@@ -15,7 +15,7 @@
  *   D7 = GPIO17 = UART0 RX (in from host TX)
  *   Must connect common GND with the host board.
  *
- * /jtag node omitted -> CONFIG_JTAG auto-disabled via dt_path_enabled().
+ * No wallabmc,jtag node -> CONFIG_JTAG is auto-disabled.
  */
 
 #include <zephyr/dt-bindings/gpio/gpio.h>

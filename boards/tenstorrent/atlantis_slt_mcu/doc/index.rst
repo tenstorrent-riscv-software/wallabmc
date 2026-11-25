@@ -18,6 +18,7 @@ Hardware
 - SWD on the FT4232H (channel A) and header J61
 - TMP117 temperature sensor and M24M01 EEPROM on I2C
 - GPIO control of the SoC power rails, reset, JTAG/UART/QSPI/SD muxes
+- Bit-bang JTAG to both SoC chains for OpenOCD (TCP ports 7777 and 7778)
 
 See :doc:`hardware` for the complete pin map.
 

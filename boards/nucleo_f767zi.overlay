@@ -6,22 +6,30 @@
         zephyr,rtc = &rtc;
     };
 
-    jtag {
-        // What is a better setting for this?
+    jtag_pins {
         compatible = "gpio-leds";
 
-        jtagtck: jtag_tck {
+        jtag_tck: jtag_tck {
             gpios = <&gpioe  2 GPIO_ACTIVE_HIGH>;
         };
-        jtagtms: jtag_tms {
+        jtag_tms: jtag_tms {
             gpios = <&gpioe  3 GPIO_ACTIVE_HIGH>;
         };
-        jtagtdo: jtag_tdo {
+        jtag_tdo: jtag_tdo {
             gpios = <&gpioe  5     GPIO_PULL_UP>;
         };
-        jtagtdi: jtag_tdi {
+        jtag_tdi: jtag_tdi {
             gpios = <&gpioe  6 GPIO_ACTIVE_HIGH>;
         };
+    };
+
+    jtag: jtag {
+        compatible = "wallabmc,jtag";
+        port = <7777>;
+        tck = <&jtag_tck>;
+        tms = <&jtag_tms>;
+        tdi = <&jtag_tdi>;
+        tdo = <&jtag_tdo>;
     };
 
     // Zephyr configures ACTIVE_LOW by default, which reads 0 when the
@@ -37,11 +45,6 @@
     };
 
     aliases {
-        jtagtck = &jtagtck;
-        jtagtms = &jtagtms;
-        jtagtdi = &jtagtdi;
-        jtagtdo = &jtagtdo;
-
         power-led = &green_led;
         status-led = &blue_led;
 

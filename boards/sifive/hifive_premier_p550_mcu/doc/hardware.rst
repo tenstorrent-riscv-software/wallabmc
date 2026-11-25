@@ -89,19 +89,19 @@ Currently implemented in WallaBMC
      - Connected to SoC UART2 (enabled in DTS, unused by code)
    * - PE0
      - JTAG TCK
-     - ``jtagtck``
+     - ``jtag_tck``, ``tck`` of ``jtag``
      - SoC JTAG bit-bang clock (TCP port 7777)
    * - PE1
      - JTAG TMS
-     - ``jtagtms``
+     - ``jtag_tms``, ``tms`` of ``jtag``
      - SoC JTAG bit-bang mode select
    * - PE2
      - JTAG TDO
-     - ``jtagtdo``
+     - ``jtag_tdo``, ``tdo`` of ``jtag``
      - SoC JTAG bit-bang data out (input, pull-up)
    * - PE4
      - JTAG TDI
-     - ``jtagtdi``
+     - ``jtag_tdi``, ``tdi`` of ``jtag``
      - SoC JTAG bit-bang data in
    * - PB2
      - BOOT1
@@ -729,13 +729,6 @@ Known bugs in current DTS/overlay
    ``DT_ALIAS(reset_button)``. This means the recovery button **does nothing**
    on P550. Fix: add ``reset-button = &user_button_recovery;`` to the overlay
    aliases section.
-
-#. **JTAG node compatible**: Both P550 and nucleo overlays use
-   ``compatible = "gpio-leds"`` for the JTAG node with a comment "What is a
-   better setting for this?". This works because ``gpio-leds`` provides the
-   ``gpios`` property, but is semantically incorrect. A custom compatible like
-   ``"gpio-jtag"`` or just removing the compatible and using raw GPIO nodes
-   would be cleaner.
 
 #. **JTAG pins "not connected for now"**: Comment in overlay suggests the SoC
    JTAG bit-bang pins (PE0-PE4) are not physically wired. The schematic does

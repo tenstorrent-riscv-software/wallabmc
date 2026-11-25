@@ -519,14 +519,14 @@ config DEFAULT_WIFI_PASSWORD
 
 config JTAG
 	bool "JTAG support"
-	depends on $(dt_path_enabled,/jtag)
+	depends on DT_HAS_WALLABMC_JTAG_ENABLED
 	default y
 
 if JTAG
 
 config JTAG_DAEMON_STACK_SIZE
-	int "JTAG daemon stack size"
-	default 1024
+	int "JTAG daemon stack size, per chain"
+	default 2048
 
 config JTAG_DAEMON_PRIORITY
 	int "JTAG daemon priority"

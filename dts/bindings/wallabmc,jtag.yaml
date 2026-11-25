@@ -1,0 +1,87 @@
+# SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  A JTAG chain the BMC bit-bangs for OpenOCD's remote_bitbang driver.
+  src/jtag.c runs one TCP server per node. The pins float until a client
+  connects, and a board mux (select) is pointed at the MCU only for the
+  length of the connection.
+
+  Example:
+
+    jtag_ascalon: jtag-ascalon {
+        compatible = "wallabmc,jtag";
+        label = "Ascalon";
+        port = <7777>;
+        tck = <&jtag1_tck>;
+        tms = <&jtag1_tms>;
+        tdi = <&jtag1_tdi>;
+        tdo = <&jtag1_tdo>;
+        trst = <&jtag1_trst>;
+        select = <&sys_jtag1_sel0 &sys_jtag1_sel1>;
+        select-mcu = <1>;
+        select-idle = <0>;
+    };
+
+compatible: "wallabmc,jtag"
+
+include: base.yaml
+
+properties:
+  label:
+    type: string
+    description: Name used in log messages and the thread name.
+
+  port:
+    type: int
+    required: true
+    description: TCP port the remote_bitbang server listens on.
+
+  tck:
+    type: phandle
+    required: true
+    description: Node with a gpios property driving TCK.
+
+  tms:
+    type: phandle
+    required: true
+    description: Node with a gpios property driving TMS.
+
+  tdi:
+    type: phandle
+    required: true
+    description: Node with a gpios property driving TDI.
+
+  tdo:
+    type: phandle
+    required: true
+    description: Node with a gpios property reading TDO.
+
+  trst:
+    type: phandle
+    description: |
+      Node with a gpios property driving TRST, active when asserted (so
+      an active-low TRST# line carries GPIO_ACTIVE_LOW). Driven by the
+      remote_bitbang reset commands; without it they are ignored. SRST
+      is never driven by the daemon: the host reset belongs to the
+      power sequencer.
+
+  select:
+    type: phandles
+    description: |
+      Mux select lines, bit 0 first, that route the chain between the
+      MCU and other sources. Driven to select-mcu while a client is
+      connected and to select-idle, or left as inputs, otherwise.
+
+  select-mcu:
+    type: int
+    description: |
+      Value written to the select lines while a client is connected:
+      bit i sets line i active. Required with select.
+
+  select-idle:
+    type: int
+    description: |
+      Value written to the select lines while no client is connected.
+      Without it the lines are left as inputs so the board's pull
+      resistors or switches decide.
