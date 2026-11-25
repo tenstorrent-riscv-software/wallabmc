@@ -48,6 +48,14 @@ CONFIG_IGNORE = {
 # figure for drom0_0_seg includes the code as well.
 SKIP_REGIONS = {"IDT_LIST", "irom0_0_seg", "drom0_0_seg"}
 
+# Sections that ram_report counts as RAM but that are not, by prefix.
+#
+# The ESP32-C6 link has NOBITS sections that only place the flash mappings:
+# .flash.align_text and .flash.align_rom pad the image, and
+# .flash_rodata_dummy covers the addresses of .text. ram_report takes any
+# NOBITS section for RAM, so it lists all the code in flash as RAM symbols.
+NOT_RAM_SECTIONS = (".flash",)
+
 # The regions every report shows. The others are small and rarely move, so
 # the short report only lists them when they change.
 PRIMARY_REGIONS = {"FLASH", "RAM", "sram0_0_seg"}
@@ -87,25 +95,36 @@ def parse_log(path):
     return tables
 
 
-def flatten(node, prefix, out):
-    """Flatten a size_report tree into {path: size} for the leaf symbols."""
+def flatten(node, prefix, out, skip=()):
+    """Flatten a size_report tree into {path: size} for the leaf symbols.
+
+    Symbols in a section whose name starts with one of skip are left out.
+    Returns whether there were any.
+    """
     name = node.get("name", "?")
     path = f"{prefix.rstrip('/')}/{name}" if prefix else name
     children = node.get("children")
     if children:
-        for child in children:
-            flatten(child, path, out)
-    else:
-        # Static symbols can share a path, so add them up.
-        out[path] = out.get(path, 0) + int(node.get("size", 0))
+        # A list, so that every child is visited.
+        return any([flatten(child, path, out, skip) for child in children])
+    if skip and str(node.get("section", "")).startswith(skip):
+        return True
+    # Static symbols can share a path, so add them up.
+    out[path] = out.get(path, 0) + int(node.get("size", 0))
+    return False
 
 
-def load_symbols(path):
+def load_symbols(path, kind):
     with open(path) as f:
         data = json.load(f)
     out = {}
-    for child in data["symbols"].get("children", []):
-        flatten(child, "", out)
+    skip = NOT_RAM_SECTIONS if kind == "ram" else ()
+    children = data["symbols"].get("children", [])
+    if any([flatten(child, "", out, skip) for child in children]):
+        # This is the total less the symbols, and the total counted the
+        # sections that were left out. Their sizes are not in the report,
+        # so it cannot be corrected.
+        out.pop("(hidden)", None)
     return out
 
 
@@ -155,7 +174,7 @@ def collect(args):
         for kind in ("rom", "ram"):
             path = os.path.join(directory, f"{kind}.json")
             if os.path.exists(path):
-                image["symbols"][kind] = load_symbols(path)
+                image["symbols"][kind] = load_symbols(path, kind)
 
         path = os.path.join(directory, "zephyr", ".config")
         if os.path.exists(path):
