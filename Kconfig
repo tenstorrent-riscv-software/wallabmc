@@ -151,9 +151,13 @@ config MBEDTLS_DEBUG_LEVEL
 # against 34 KiB with a self-signed certificate. Installing a certificate,
 # issuing one and making a CSR also take temporary buffers from it, of up
 # to about 4.3 KiB, see src/https_cert.c.
+#
+# With firmware updates each connection's receive buffer is 12 KiB bigger,
+# see MBEDTLS_SSL_IN_CONTENT_LEN.
 config MBEDTLS_HEAP_SIZE
 	int
 	depends on APP_CRYPTO
+	default 94208 if APP_HTTPS_PUBLIC_KEY && APP_MCUBOOT_UPDATE
 	default 57344 if APP_HTTPS_PUBLIC_KEY
 	default 49152
 
@@ -188,9 +192,14 @@ config NET_SOCKETS_TLS_MAX_CONTEXTS
 # negotiate smaller sizes, so 1500 should be okay there. Redfish
 # and curl with auth headers seem to require more (4096 works).
 # may require more?
+#
+# A firmware upload is different: the client fills its TLS records, and
+# neither curl nor a browser can be told to send smaller ones. Only the
+# full 16 KiB lets the upload through.
 config MBEDTLS_SSL_IN_CONTENT_LEN
 	int
 	depends on APP_CRYPTO
+	default 16384 if APP_MCUBOOT_UPDATE
 	default 4096
 
 config MBEDTLS_SSL_OUT_CONTENT_LEN
