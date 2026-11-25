@@ -108,6 +108,29 @@ board specific documentation for details.
 [XIAO ESP32-C6](boards/xiao_esp32c6_hpcore.md)
 [QEMU](boards/qemu_cortex_m3.md)
 
+### Firmware image signing
+
+On boards that use MCUboot, the bootloader checks a signature on the
+application before starting it. The default scheme is ECDSA P-256.
+
+With no key given, the build generates one in the build directory and signs
+the application with it. A clean build generates a new key, so the bootloader
+and the application must come from the same build and be flashed together.
+
+To sign with your own key, generate it once and keep it somewhere safe:
+
+    python3 ../bootloader/mcuboot/scripts/imgtool.py keygen -t ecdsa-p256 -k /path/to/key.pem
+
+Then pass it to each build:
+
+    `-- -DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE='"/path/to/key.pem"'`
+
+Ed25519 signatures are also supported, with
+`-DSB_CONFIG_BOOT_SIGNATURE_TYPE_ED25519=y` and a key generated with
+`-t ed25519`. They are quicker to check at boot, but MCUboot grows from about
+24 KiB to 35 KiB, which doesn't fit the 32 KiB bootloader partition of the
+Nucleo F767ZI and P550 MCU builds.
+
 ## Running
 
 Each board has different features and capabilities, full details in

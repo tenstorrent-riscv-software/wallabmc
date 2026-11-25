@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Defaults here come before Zephyr's sysbuild Kconfig, so they take
+# precedence over its defaults.
+
+# MCUboot checks an elliptic curve signature on the application.
+# BOOT_SIGNATURE_TYPE_ED25519 is supported as well. It is quicker to check,
+# but makes MCUboot too big for a 32 KiB boot partition.
+choice BOOT_SIGNATURE_TYPE
+	default BOOT_SIGNATURE_TYPE_ECDSA_P256
+endchoice
+
+# Zephyr defaults to the well-known debug keys in the MCUboot repository.
+# Default to a file in the build directory instead, which sysbuild.cmake
+# generates if it doesn't exist. Set this to the path of your own key to
+# sign with that.
+config BOOT_SIGNATURE_KEY_FILE
+	default "$(KCONFIG_BINARY_DIR)/mcuboot-generated-ecdsa-p256.pem" if BOOT_SIGNATURE_TYPE_ECDSA_P256
+	default "$(KCONFIG_BINARY_DIR)/mcuboot-generated-ed25519.pem" if BOOT_SIGNATURE_TYPE_ED25519
+
+source "$(ZEPHYR_BASE)/share/sysbuild/Kconfig"
