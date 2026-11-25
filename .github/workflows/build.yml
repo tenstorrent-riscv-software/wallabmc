@@ -173,6 +173,13 @@ jobs:
             workspace/build/zephyr/zephyr.bin
             workspace/build/zephyr/zephyr.elf
 
+      # The West module cache saves the whole workspace when the job ends.
+      # The build directory holds the generated MCUboot signing key, which
+      # pull requests from forks could then restore from the cache.
+      - name: Remove Build Directory
+        if: ${{ always() }}
+        run: rm -rf workspace/build
+
   size-report:
     runs-on: ubuntu-latest
 
