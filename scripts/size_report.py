@@ -51,6 +51,14 @@ FILES = ["zephyr.signed.bin", "zephyr.bin"]
 # figure for drom0_0_seg includes the code as well.
 SKIP_REGIONS = {"IDT_LIST", "irom0_0_seg", "drom0_0_seg"}
 
+# The regions every report shows. The others are small and rarely move, so
+# the short report only lists them when they change.
+PRIMARY_REGIONS = {"FLASH", "RAM", "sram0_0_seg"}
+
+# A board is only called out as changed when something moves by more than
+# this many bytes.
+NOISE_BYTES = 32
+
 TOP_SYMBOLS = 10
 MAX_CONFIG_LINES = 100
 MAX_REPORT = 60000
@@ -222,60 +230,110 @@ def get(images, image, section, key):
         return None
 
 
-def rows_for(board, head, base):
-    """Table rows for one board, and whether anything changed."""
+def row_delta(row):
+    return None if row["base"] is None else row["used"] - row["base"]
+
+
+def row(image, label, kind, region, used, base, size=0):
+    return {
+        "label": label,
+        "kind": kind,
+        "image": image,
+        "region": region,
+        "used": as_int(used),
+        "base": as_int(base) if base is not None else None,
+        "size": size,
+    }
+
+
+def rows_for(head, base):
+    """Rows for one board, and whether it changed by more than the noise."""
     rows = []
     changed = False
-
-    def add(label, h, b, size=None):
-        nonlocal changed
-        h = as_int(h)
-        b = as_int(b) if b is not None else None
-        if not h and not b:
-            # Unused in both builds, or unused with nothing to compare to.
-            return
-        if b is not None and b != h:
-            changed = True
-        free = ""
-        if size:
-            free = f"{num(size - h)} ({(size - h) / size:.1%})"
-        rows.append((label, num(h), delta(b, h), free))
 
     for image in sorted(head, key=lambda n: (n != "wallabmc", n)):
         prefix = "" if image == "wallabmc" else f"{clean(image, 32)} "
         regions = head[image].get("regions", {})
         files = head[image].get("files", {})
         base_regions = base.get(image, {}).get("regions", {})
-        image_rows = len(rows)
-        image_changed = changed
-        changed = False
+        image_rows = []
 
         # Regions of this build, then any that only the baseline has.
         for region in [*regions, *(r for r in base_regions if r not in regions)]:
             v = regions.get(region, {})
             b = base_regions.get(region)
-            add(
-                prefix + clean(region, 32),
-                v.get("used"),
-                b.get("used") if isinstance(b, dict) else None,
-                as_int(v.get("size")),
-            )
+            if isinstance(b, dict):
+                b = b.get("used")
+            elif base_regions:
+                # The baseline has this image but not the region.
+                b = 0
+            else:
+                b = None
+            kind = "primary" if region in PRIMARY_REGIONS else "secondary"
+            label = prefix + clean(region, 32)
+            size = as_int(v.get("size"))
+            image_rows.append(row(image, label, kind, region, v.get("used"), b, size))
         for filename in FILES:
             if filename in files:
-                add(
-                    prefix + filename,
-                    files[filename],
-                    get(base, image, "files", filename),
-                )
+                b = get(base, image, "files", filename)
+                label = prefix + filename
+                image_rows.append(row(image, label, "file", None, files[filename], b))
                 break
 
+        # Leave out what is unused in both builds, or unused with nothing
+        # to compare to.
+        image_rows = [r for r in image_rows if r["used"] or r["base"]]
+        deltas = [row_delta(r) or 0 for r in image_rows]
         # The bootloader rarely changes; only show it when it does, or
         # when there is no baseline and the sizes are all there is to show.
-        if image != "wallabmc" and image in base and not changed:
-            del rows[image_rows:]
-        changed = changed or image_changed
+        if image != "wallabmc" and image in base and not any(deltas):
+            continue
+        rows += image_rows
+        if any(abs(d) > NOISE_BYTES for d in deltas):
+            changed = True
 
     return rows, changed
+
+
+def trim(rows):
+    """Drop the rows that the short report leaves out."""
+    flash = {}
+    for r in rows:
+        if r["region"] == "FLASH":
+            flash[r["image"]] = row_delta(r) or 0
+
+    kept = []
+    for r in rows:
+        d = row_delta(r)
+        if r["kind"] == "secondary" and not d:
+            continue
+        # The output file follows FLASH, so it only says something when
+        # the two move apart.
+        if r["kind"] == "file" and (d is None or d == flash.get(r["image"], 0)):
+            continue
+        kept.append(r)
+    return kept or rows
+
+
+def table(entries, short):
+    """Markdown table for a list of (board, is new, rows)."""
+    out = [
+        "| Board | Item | Used | Change | Free |",
+        "|---|---|--:|--:|--:|",
+    ]
+    for board, new, rows in entries:
+        for i, r in enumerate(trim(rows) if short else rows):
+            name = ""
+            if i == 0:
+                name = f"`{board}`" + " (new)" * new
+            free = ""
+            if r["size"]:
+                free = f"{(r['size'] - r['used']) / r['size']:.1%}"
+            change = delta(r["base"], r["used"])
+            out.append(
+                f"| {name} | `{r['label']}` | {num(r['used'])} | {change} | {free} |"
+            )
+    return out
 
 
 def symbol_changes(head, base, kind):
@@ -388,20 +446,21 @@ def compare(args):
             out += ["", note]
 
     details = []
-    if head:
-        out += [
-            "",
-            "| Board | Item | Used | Change | Free |",
-            "|---|---|--:|--:|--:|",
-        ]
+    entries = []
+    listed = []
+    quiet = []
+    noise = False
     for board in sorted(head):
         board_base = base.get(board, {})
-        rows, changed = rows_for(board, head[board], board_base)
-        for i, (label, used, change, free) in enumerate(rows):
-            name = f"`{board}`" if i == 0 else ""
-            if i == 0 and base and board not in base:
-                name += " (new)"
-            out.append(f"| {name} | `{label}` | {used} | {change} | {free} |")
+        rows, changed = rows_for(head[board], board_base)
+        new = bool(base) and board not in base
+        entry = (board, new, rows)
+        entries.append(entry)
+        if changed or new or not base:
+            listed.append(entry)
+        else:
+            quiet.append(entry)
+            noise = noise or any(row_delta(r) for r in rows)
 
         if not changed:
             continue
@@ -429,10 +488,35 @@ def compare(args):
                 "",
             ]
 
+    if args.full:
+        if entries:
+            out += ["", *table(entries, short=False)]
+    else:
+        if quiet:
+            plural = "s" * (len(quiet) != 1)
+            small = f" of more than {NOISE_BYTES} bytes" if noise else ""
+            out += ["", f"No size change{small} on {len(quiet)} board{plural}."]
+        if listed:
+            out += ["", *table(listed, short=True)]
+
     out += config_report(head, base)
+
+    if quiet and not args.full:
+        out += [
+            "",
+            "<details><summary>All boards</summary>",
+            "",
+            *table(entries, short=True),
+            "",
+            "</details>",
+        ]
 
     if details:
         out += ["", *details]
+
+    url = args.run_url or ""
+    if not args.full and re.fullmatch(r"https://[A-Za-z0-9._/-]+", url):
+        out += ["", f"Every region is listed in the [build summary]({url})."]
 
     text = "\n".join(out).rstrip() + "\n"
     if len(text) > MAX_REPORT:
@@ -470,6 +554,12 @@ def main():
         "--wanted-base-sha",
         help="commit the baseline should have been built from, if known",
     )
+    p.add_argument(
+        "--full",
+        action="store_true",
+        help="list every row of every board, rather than what changed",
+    )
+    p.add_argument("--run-url", help="build run to link to from the short report")
     p.add_argument("-o", "--output", default="-")
     p.set_defaults(func=compare)
 
