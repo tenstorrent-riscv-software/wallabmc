@@ -23,6 +23,7 @@
 LOG_MODULE_REGISTER(wallabmc_http, LOG_LEVEL_INF);
 
 #include "http.h"
+#include "https_cert.h"
 #include "config.h"
 
 BUILD_ASSERT(IS_ENABLED(CONFIG_APP_HTTP) || IS_ENABLED(CONFIG_APP_HTTPS),
@@ -219,8 +220,6 @@ struct http_resource_detail_dynamic https_redirect_detail = {
 
 #if defined(CONFIG_APP_HTTPS)
 
-#include "certificate.h"
-
 #ifndef CONFIG_NET_SOCKETS_SOCKOPT_TLS
 #error "CONFIG_NET_SOCKETS_SOCKOPT_TLS=n"
 #endif
@@ -264,22 +263,12 @@ static int setup_tls(void)
 	int err = 0;
 
 #if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
-	err = tls_credential_add(HTTP_SERVER_CERTIFICATE_TAG,
-				 TLS_CREDENTIAL_PUBLIC_CERTIFICATE,
-				 server_certificate,
-				 sizeof(server_certificate));
-	if (err < 0) {
-		LOG_ERR("Failed to register public certificate: %d", err);
-		return err;
-	}
-
-	err = tls_credential_add(HTTP_SERVER_CERTIFICATE_TAG,
-				 TLS_CREDENTIAL_PRIVATE_KEY,
-				 private_key, sizeof(private_key));
-	if (err < 0) {
-		LOG_ERR("Failed to register private key: %d", err);
-		return err;
-	}
+	/*
+	 * Without a certificate nothing is registered under the tag, and the
+	 * HTTP server doesn't start the HTTPS service. Port 80 still starts.
+	 */
+	if (https_cert_init() == 0)
+		https_cert_register(HTTP_SERVER_CERTIFICATE_TAG);
 #endif
 
 #if defined(CONFIG_APP_HTTPS_PSK)

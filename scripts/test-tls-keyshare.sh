@@ -12,8 +12,10 @@
 # and P-256, so a client offering either must connect with a single
 # ClientHello.
 #
-# A client that only sends a P-384 share is used as a control: the
-# device does not support P-384, so that handshake must need a retry.
+# A client that only sends a P-521 share is used as a control: the
+# device does not support P-521, so that handshake must need a retry.
+# (Not P-384: enabling it, to install certificate chains with P-384 CAs,
+# also makes it a supported key exchange group.)
 # This shows the test can see a HelloRetryRequest.
 #
 # Usage: test-tls-keyshare.sh [IP]
@@ -80,7 +82,7 @@ check() {
 check "X25519 key share" 1 'X25519' -groups X25519
 check "P-256 key share" 1 'prime256v1' -groups P-256
 check "openssl default key shares" 1 'Temp Key'
-check "P-384 key share is retried (control)" 2 'X25519' -groups P-384:X25519
+check "P-521 key share is retried (control)" 2 'X25519' -groups P-521:X25519
 
 echo
 if [ "$failed" -ne 0 ]; then

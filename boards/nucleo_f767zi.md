@@ -6,6 +6,10 @@ The Nucleo exposes an STM32 UART as a serial device over the USB port.
 WallaBMC puts the BMC console on this serial device that displays boot
 and log messages, and can be used to query and configure the device.
 
+The fingerprint of the BMC's HTTPS certificate is printed here at boot, and
+shown by ``bmc cert``. Check it against the certificate your browser or client
+sees before trusting it, see [HTTPS certificates](../docs/https-certificates.md).
+
 ### Host serial console
 
 The Nucleo has USART6 connected to pins D0/D1 RX/TX on the CN10 connector.

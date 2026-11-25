@@ -19,6 +19,7 @@ LOG_MODULE_REGISTER(wallabmc, LOG_LEVEL_INF);
 #include "net.h"
 #include "wifi.h"
 #include "http.h"
+#include "https_cert.h"
 #include "power.h"
 #include "rtc.h"
 #include "sensors.h"
@@ -296,9 +297,29 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_bmc_wifi_cmds,
 );
 #endif /* CONFIG_APP_WIFI */
 
+#if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_bmc_cert_cmds,
+	SHELL_CMD(regenerate,	NULL,
+		  "Delete the HTTPS key and certificate and reboot to generate new ones.",
+		  https_cert_cmd_regenerate),
+	SHELL_CMD(self-signed,	NULL,
+		  "Replace an installed HTTPS certificate with a self-signed one.",
+		  https_cert_cmd_self_signed),
+	SHELL_CMD_ARG(names,	NULL,
+		  "Show or set extra names for the HTTPS certificate.\n"
+		  "Usage: bmc cert names [<DNS name or IPv4 address>... | clear]",
+		  https_cert_cmd_names, 1, 8),
+	SHELL_SUBCMD_SET_END
+);
+#endif
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_bmc_cmds,
 	SHELL_CMD(reboot,	NULL, "Reboot BMC.", cmd_bmc_reboot),
 	SHELL_CMD(poweroff,	NULL, "Power off BMC.", cmd_bmc_poweroff),
+#if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
+	SHELL_CMD(cert,		&sub_bmc_cert_cmds, "Show the HTTPS certificate.",
+		  https_cert_cmd_show),
+#endif
 #ifdef CONFIG_APP_WIFI
 	SHELL_CMD(wifi,		&sub_bmc_wifi_cmds, "Wi-Fi control commands.", NULL),
 #endif

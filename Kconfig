@@ -108,11 +108,13 @@ config APP_CRYPTO_PUBLIC_KEY
 	# Required for websocket
 	select PSA_WANT_ALG_SHA_1 if HTTP_SERVER_WEBSOCKET
 
-# Use optimised routine for X25519 shared secrets. Zephyr 4.5 builds
-# and links the everest library but has no Kconfig option to turn it on.
-# The header is in src/crypto, added to the include path in CMakeLists.txt.
+# TF-PSA-Crypto options that Zephyr has no Kconfig for: mbedTLS thread
+# safety (see src/crypto_threading.c), needed whenever mbedTLS is used,
+# and the optimised routine for X25519 shared secrets, which Zephyr 4.5
+# builds and links but has no option to turn on. The header is in
+# src/crypto, added to the include path in CMakeLists.txt.
 config TF_PSA_CRYPTO_USER_CONFIG_FILE
-	default "tf-psa-crypto-user-config.h" if APP_CRYPTO_PUBLIC_KEY
+	default "tf-psa-crypto-user-config.h" if MBEDTLS
 
 # PSK can only use TLS1.2 (supporting 1.3 seems to require pulling in
 # so much that it is not worthwhile).
@@ -139,9 +141,16 @@ config MBEDTLS_DEBUG_LEVEL
 	depends on APP_CRYPTO_DEBUG
 	default 1
 
+# Every HTTPS connection parses its own copy of an installed certificate
+# chain. With 3 connections at once, the most the BMC served in testing, the
+# heap peaks at about 45 KiB with the largest chain that can be installed,
+# against 34 KiB with a self-signed certificate. Installing a certificate,
+# issuing one and making a CSR also take temporary buffers from it, of up
+# to about 4.3 KiB, see src/https_cert.c.
 config MBEDTLS_HEAP_SIZE
 	int
 	depends on APP_CRYPTO
+	default 57344 if APP_HTTPS_PUBLIC_KEY
 	default 49152
 
 config NET_PKT_RX_COUNT
@@ -225,6 +234,26 @@ config APP_HTTPS_PUBLIC_KEY
 	default y
 	depends on APP_HTTPS
 	select APP_CRYPTO_PUBLIC_KEY
+	# The key and self-signed certificate are generated on the board
+	select MBEDTLS_PK_PARSE_C
+	select MBEDTLS_PK_WRITE_C
+	select MBEDTLS_X509_CRT_PARSE_C
+	select MBEDTLS_X509_CRT_WRITE_C
+	# Zephyr only defines MBEDTLS_X509_CREATE_C, which the certificate
+	# writer needs, along with the CSR writer. Unused code is discarded
+	# at link time.
+	select MBEDTLS_X509_CSR_WRITE_C
+	# Subject key identifier
+	select PSA_WANT_ALG_SHA_1
+	# The BMC UUID is in the self-signed certificate's subject, so it must
+	# be unique to the board, not the fixed fallback UUID
+	select APP_BMC_UUID
+	# Installed certificate chains are registered as PEM
+	select MBEDTLS_PEM_PARSE_C
+	# CAs often have P-384 keys, eg. Let's Encrypt's ECDSA intermediates,
+	# so allow them in an installed chain. The BMC's own key is still
+	# P-256, which is faster, see docs/https-certificates.md.
+	select PSA_WANT_ECC_SECP_R1_384
 
 config APP_HTTPS_PSK
 	bool "HTTPS PSK support"
@@ -381,10 +410,12 @@ config NET_TCP_RETRY_COUNT
 	int
 	default 10
 
+# Reissuing the HTTPS certificate from the shell (eg. "config bmc hostname")
+# signs it on the shell thread, which needs about 1.3 KiB more.
 config SHELL_STACK_SIZE
 	int
-	depends on SHELL_BACKEND_WEBSOCKET
-	default 3072
+	default 3584 if APP_HTTPS_PUBLIC_KEY
+	default 3072 if SHELL_BACKEND_WEBSOCKET
 
 config HTTP_SERVER_STACK_SIZE
 	int
