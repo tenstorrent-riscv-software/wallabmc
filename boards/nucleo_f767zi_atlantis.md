@@ -14,8 +14,8 @@ See [nucleo_f767zi.md](nucleo_f767zi.md) for the consoles.
 
 ### Building
 ```
-cd zephyr
-west build -p --sysbuild -b nucleo_f767zi/stm32f767xx/atlantis ../wallabmc
+cd wallabmc
+west build -p --sysbuild -b nucleo_f767zi/stm32f767xx/atlantis
 ```
 
 ### Flashing
@@ -143,8 +143,8 @@ Rules:
 To check, build both and compare:
 
 ```
-west build -p --sysbuild -b nucleo_f767zi/stm32f767xx/atlantis ../wallabmc
-west build -p --sysbuild -b atlantis_evb_mcu ../wallabmc -d build-atlantis
+west build -p --sysbuild -b nucleo_f767zi/stm32f767xx/atlantis
+west build -p --sysbuild -b atlantis_evb_mcu -d build-atlantis
 ```
 
 - The `FLASH`, `RAM` and `DTCM` region sizes the linker prints for the

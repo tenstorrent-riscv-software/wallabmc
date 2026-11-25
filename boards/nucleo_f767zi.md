@@ -16,8 +16,8 @@ what is transmitted to it).
 
 ### Building
 ```
-cd zephyr
-west build -p --sysbuild -b nucleo_f767zi ../wallabmc
+cd wallabmc
+west build -p --sysbuild -b nucleo_f767zi
 ```
 
 To build with the flash and RAM limits of the Atlantis STM32F746ZG, see the

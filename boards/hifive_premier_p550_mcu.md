@@ -7,8 +7,8 @@ UART on the host CPU.
 
 ### Building
 ```
-cd zephyr
-west build -p --sysbuild -b hifive_premier_p550_mcu ../wallabmc
+cd wallabmc
+west build -p --sysbuild -b hifive_premier_p550_mcu
 ```
 
 ### Flashing

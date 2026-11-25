@@ -20,8 +20,8 @@ MCU drives the mux select.
 
 ### Building
 ```
-cd zephyr
-west build -p --sysbuild -b atlantis_evb_mcu ../wallabmc
+cd wallabmc
+west build -p --sysbuild -b atlantis_evb_mcu
 ```
 
 ### Flashing

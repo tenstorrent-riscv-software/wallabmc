@@ -26,7 +26,7 @@ west flash --runner openocd
 or with the files from a build:
 
 ```
-openocd -f ../wallabmc/boards/tenstorrent/atlantis_evb_mcu/support/openocd.cfg \
+openocd -f boards/tenstorrent/atlantis_evb_mcu/support/openocd.cfg \
   -c 'init; halt; flash write_image erase build/mcuboot/zephyr/zephyr.hex; flash write_image erase build/wallabmc/zephyr/zephyr.signed.hex; reset; exit'
 ```
 

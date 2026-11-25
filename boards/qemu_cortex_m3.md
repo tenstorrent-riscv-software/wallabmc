@@ -10,6 +10,6 @@ hints for how to use the machine, see
 QEMU does not use sysbuild.
 
 ```
-cd zephyr
-west build -p always -b qemu_cortex_m3 ../wallabmc
+cd wallabmc
+west build -p always -b qemu_cortex_m3
 ```
