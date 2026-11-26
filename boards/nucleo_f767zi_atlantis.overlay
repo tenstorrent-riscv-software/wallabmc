@@ -1,6 +1,6 @@
 // Nucleo F767ZI limited to the Atlantis STM32F746ZG
 
-#include "nucleo_f767zi_wallabmc.dtsi"
+#include "nucleo_stm32f7_wallabmc.dtsi"
 
 /*
  * Use the Atlantis flash layout rather than the Nucleo one. Keep this the

@@ -117,7 +117,7 @@ Where things are defined:
 | Flash partitions | `boards/tenstorrent/common/atlantis_wallabmc.dtsi` | `boards/nucleo_f767zi_atlantis.overlay` |
 | WallaBMC Kconfig | `boards/atlantis_slt_mcu.conf`, `boards/atlantis_evb_mcu.conf` | `boards/nucleo_f767zi_atlantis.conf` |
 | MCUboot Kconfig | `sysbuild/mcuboot/boards/atlantis_*_mcu.conf` | `sysbuild/mcuboot/boards/nucleo_f767zi_atlantis.conf` |
-| Nucleo pins, aliases, JTAG | | `boards/nucleo_f767zi_wallabmc.dtsi`, shared with the plain Nucleo |
+| Nucleo pins, aliases, JTAG | | `boards/nucleo_stm32f7_wallabmc.dtsi`, shared with the other Nucleo boards |
 
 Rules:
 
@@ -132,8 +132,8 @@ Rules:
    Options that only name the product, such as the Redfish strings, do not
    need copying.
 3. When a change is made for the Nucleo itself (pins, aliases, a new
-   peripheral), put it in `nucleo_f767zi_wallabmc.dtsi` so that both Nucleo
-   builds get it. Only partitions belong in the two `.overlay` files.
+   peripheral), put it in `nucleo_stm32f7_wallabmc.dtsi` so that every
+   Nucleo build gets it. Only partitions belong in the two `.overlay` files.
 4. A variant does not inherit `nucleo_f767zi_defconfig`,
    `boards/nucleo_f767zi.conf` or `boards/nucleo_f767zi.overlay`. Zephyr only
    reads files named for the variant. `nucleo_f767zi_atlantis_defconfig` is a

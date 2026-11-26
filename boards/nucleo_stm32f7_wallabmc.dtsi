@@ -1,6 +1,6 @@
 /delete-node/ &quadspi_memory;
 
-// WallaBMC configuration shared by the Nucleo F767ZI and its atlantis variant
+// WallaBMC configuration shared by the STM32F7 Nucleo-144 boards
 / {
     chosen {
         zephyr,rtc = &rtc;
