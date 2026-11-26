@@ -59,6 +59,7 @@ jobs:
             --head sizes/head --base sizes/base \
             --base-sha "$(jq -r '.base_sha | strings' sizes/meta.json)" \
             --wanted-base-sha "$(jq -r '.wanted_sha | strings' sizes/meta.json)" \
+            --run-url "$GITHUB_SERVER_URL/$REPO/actions/runs/$RUN_ID" \
             -o comment.md
 
           # Keep one comment per pull request and update it.
