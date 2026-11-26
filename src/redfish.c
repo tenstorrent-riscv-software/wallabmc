@@ -645,6 +645,9 @@ struct redfish_service_root {
 #if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
 	struct redfish_link certificate_service;
 #endif
+#ifdef CONFIG_APP_MCUBOOT_UPDATE
+	struct redfish_link update_service;
+#endif
 	struct redfish_service_root_links links;
 };
 static const struct json_obj_descr service_root_descr[] = {
@@ -673,6 +676,10 @@ static const struct json_obj_descr service_root_descr[] = {
 #if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
 	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_service_root, "CertificateService",
 				    certificate_service, link_descr),
+#endif
+#ifdef CONFIG_APP_MCUBOOT_UPDATE
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_service_root, "UpdateService",
+				    update_service, link_descr),
 #endif
 	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_service_root, "Links",
 				    links, service_root_links_descr),
@@ -706,6 +713,11 @@ static int service_root_get_handler(struct http_resource_user_data *user_data)
 #if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
 		.certificate_service = {
 			.odata_id = "/redfish/v1/CertificateService"
+		},
+#endif
+#ifdef CONFIG_APP_MCUBOOT_UPDATE
+		.update_service = {
+			.odata_id = "/redfish/v1/UpdateService"
 		},
 #endif
 		.links = {
@@ -822,7 +834,7 @@ static const struct json_obj_descr odata_value_descr[] = {
 				  url, JSON_TOK_STRING),
 };
 
-#define REDFISH_ODATA_VALUES_MAX 5
+#define REDFISH_ODATA_VALUES_MAX 6
 
 struct redfish_odata {
 	const char *odata_context;
@@ -842,13 +854,17 @@ static int odata_get_handler(struct http_resource_user_data *user_data)
 {
 	const struct redfish_odata odata = {
 		.odata_context = "/redfish/v1/$metadata",
-		.value_count = REDFISH_ODATA_VALUES_MAX,
+		.value_count = REDFISH_ODATA_VALUES_MAX -
+			       !IS_ENABLED(CONFIG_APP_MCUBOOT_UPDATE),
 		.value = {
 			{ .name = "Service", .kind = "Singleton", .url = "/redfish/v1/", },
 			{ .name = "Systems", .kind = "Singleton", .url = "/redfish/v1/Systems", },
 			{ .name = "Managers", .kind = "Singleton", .url = "/redfish/v1/Managers", },
 			{ .name = "AccountService", .kind = "Singleton", .url = "/redfish/v1/AccountService", },
 			{ .name = "Chassis", .kind = "Singleton", .url = "/redfish/v1/Chassis", },
+#ifdef CONFIG_APP_MCUBOOT_UPDATE
+			{ .name = "UpdateService", .kind = "Singleton", .url = "/redfish/v1/UpdateService", },
+#endif
 		},
 	};
 	int ret;
@@ -2820,7 +2836,64 @@ REDFISH_HANDLER_SIZED(replace_certificate,
 #endif /* CONFIG_APP_HTTPS_PUBLIC_KEY */
 
 #ifdef CONFIG_APP_MCUBOOT_UPDATE
-/*** /redfish/v1/UpdateService/upload ***/
+/*** /redfish/v1/UpdateService ***/
+
+/*
+ * Firmware images are pushed with a POST of the raw image to HttpPushUri.
+ * HttpPushUri is deprecated from UpdateService v1_15_0 in favour of
+ * MultipartHttpPushUri, so the resource claims v1_14_2, the last version
+ * where it is not. Moving to the multipart push later means adding
+ * MultipartHttpPushUri (present since v1_6_0) at another URI, then
+ * raising the version.
+ *
+ * The push only stores the image for MCUboot to install at the next reset,
+ * hence "upload". OpenBMC's /redfish/v1/UpdateService/update also applies
+ * the update and reboots, and answers with a task, so that name is avoided.
+ */
+#define UPDATE_SERVICE_PUSH_URI "/redfish/v1/UpdateService/upload"
+
+struct redfish_update_service {
+	const char *odata_id;
+	const char *odata_type;
+	const char *id;
+	const char *name;
+	const char *http_push_uri;
+};
+static const struct json_obj_descr update_service_descr[] = {
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_update_service, "@odata.id", odata_id, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_update_service, "@odata.type", odata_type, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_update_service, "Id", id, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_update_service, "Name", name, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_update_service, "HttpPushUri", http_push_uri, JSON_TOK_STRING),
+};
+
+/* GET /redfish/v1/UpdateService */
+static int update_service_get_handler(struct http_resource_user_data *user_data)
+{
+	const struct redfish_update_service update_service = {
+		.odata_id = "/redfish/v1/UpdateService",
+		.odata_type = "#UpdateService.v1_14_2.UpdateService",
+		.id = "UpdateService",
+		.name = "Update Service",
+		.http_push_uri = UPDATE_SERVICE_PUSH_URI,
+	};
+	int ret;
+
+	ret = json_obj_encode(update_service_descr, ARRAY_SIZE(update_service_descr),
+			      &update_service, user_data_json_append, user_data);
+	if (ret < 0) {
+		LOG_ERR("Failed to encode update service: %d", ret);
+		return HTTP_500_INTERNAL_SERVER_ERROR;
+	}
+
+	return 0;
+}
+
+REDFISH_HANDLER(update_service, "/redfish/v1/UpdateService",
+		true, /* require auth */
+		update_service_get_handler, NULL, NULL);
+
+/*** UpdateService HttpPushUri ***/
 
 static size_t get_content_length(const struct http_client_ctx *client)
 {
@@ -2859,7 +2932,7 @@ static size_t get_content_length(const struct http_client_ctx *client)
 	return 0;
 }
 
-/* POST /redfish/v1/UpdateService/upload */
+/* POST UPDATE_SERVICE_PUSH_URI */
 static int update_service_upload_post_handler(struct http_client_ctx *client,
 			   enum http_transaction_status status,
 			   const struct http_request_ctx *request_ctx,
@@ -3012,7 +3085,7 @@ failed:
 	return 0;
 }
 
-REDFISH_HANDLER_RAW(update_service_upload, "/redfish/v1/UpdateService/upload",
+REDFISH_HANDLER_RAW(update_service_upload, UPDATE_SERVICE_PUSH_URI,
 		BIT(HTTP_POST), NULL,
 		update_service_upload_post_handler);
 
