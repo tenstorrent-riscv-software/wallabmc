@@ -12,7 +12,7 @@ def main():
     with open(msg_file) as f:
         msg = f.read()
 
-    if re.match(r'^(wip|fixup)', msg, re.IGNORECASE):
+    if re.match(r'^(wip|fixup|amend)', msg, re.IGNORECASE):
         sys.exit(0)
 
     name = subprocess.check_output(['git', 'config', 'user.name']).decode().strip()

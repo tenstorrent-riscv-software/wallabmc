@@ -6,7 +6,7 @@ repos:
   - repo: local
     hooks:
       - id: check-git-signoff
-        name: Verify Signed-off-by (Allow WIP/wip & fixup)
+        name: Verify Signed-off-by (Allow WIP/wip, fixup & amend)
         language: system
         entry: python3 scripts/check_signoff.py
         stages: [commit-msg]
