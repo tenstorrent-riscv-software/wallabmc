@@ -173,10 +173,16 @@ with your own key (see [Firmware image signing](#firmware-image-signing)) so
 that later builds can be uploaded. With a generated key, only images from the
 same build directory are accepted.
 
-Firmware updates can be initiated via the Web UI, or by uploading directly to
-the redfish endpoint.
+Firmware updates can be initiated via the Web UI, or with a Redfish HTTP push
+update: a ``POST`` of the image to the URI given by the ``HttpPushUri``
+property of ``/redfish/v1/UpdateService``, currently
+``/redfish/v1/UpdateService/upload``.
 
-``curl -k -u admin:password --data-binary @wallabmc.signed.bin  https://<addr>/redfish/v1/UpdateService/upload``
+```
+curl -k -u admin:password -H 'Content-Type: application/octet-stream' \
+    --data-binary @build/wallabmc/zephyr/zephyr.signed.bin \
+    https://<addr>/redfish/v1/UpdateService/upload
+```
 
 ### BMC shell
 
