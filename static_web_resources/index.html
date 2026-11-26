@@ -1038,19 +1038,27 @@
 			return call;
 		}
 
+		// URI to POST firmware images to, from UpdateService.HttpPushUri,
+		// or null if the BMC has no update service.
+		let firmwarePushUri = null;
+
 		function checkFirmwareUploadAvailable() {
 			const call = redfishQueue.then(async () => {
 				try {
-					const response = await fetch('/redfish/v1/UpdateService/upload', {
+					const response = await fetch('/redfish/v1/UpdateService', {
 						method: 'GET',
 						headers: {
 							'authorization': basicAuthHeader,
 							'x-auth-code': 'webui',
 						},
 					});
-					return response.ok || response.status === 405;
+					if (!response.ok) {
+						return null;
+					}
+					const data = await response.json();
+					return typeof data.HttpPushUri === 'string' ? data.HttpPushUri : null;
 				} catch {
-					return false;
+					return null;
 				}
 			});
 			redfishQueue = call.catch(() => {});
@@ -1190,7 +1198,8 @@
 					console.log("No BMC temperature sensor found.");
 				}
 
-				if (await checkFirmwareUploadAvailable()) {
+				firmwarePushUri = await checkFirmwareUploadAvailable();
+				if (firmwarePushUri) {
 					show('bmc-firmware-section');
 				} else {
 					hide('bmc-firmware-section');
@@ -1223,6 +1232,7 @@
 
 			document.getElementById('sidebar-sensors').classList.add('hidden');
 			hide('bmc-firmware-section');
+			firmwarePushUri = null;
 			resetFirmwareUploadUI(true);
 			showSection('system-overview');
 
@@ -1812,6 +1822,10 @@
 			const statusDiv = document.getElementById('bmc-fw-upload-status');
 			const btn = document.getElementById('bmc-fw-upload-btn');
 
+			if (!firmwarePushUri) {
+				return;
+			}
+
 			if (!fileInput.files || fileInput.files.length === 0) {
 				alert("Please select a firmware file first.");
 				return;
@@ -1830,13 +1844,12 @@
 				statusDiv.innerText = 'Uploading... Please keep this page open.';
 
 				// Use the browser's native fetch to handle the stream
-				const upload = redfishQueue.then(() => fetch('/redfish/v1/UpdateService/upload', {
+				const upload = redfishQueue.then(() => fetch(firmwarePushUri, {
 					method: 'POST',
 					headers: {
 						'authorization': basicAuthHeader,
 						'x-auth-code': 'webui',
 						'content-type': 'application/octet-stream',
-						'content-length': file.size
 					},
 					body: file
 				}));
