@@ -1805,7 +1805,7 @@ static int system_reset_post_handler(struct http_resource_user_data *user_data)
 	memset(&payload, 0, sizeof(payload));
 	ret = json_obj_parse(user_data->data_buffer, user_data->data_len,
 			     reset_descr, ARRAY_SIZE(reset_descr), &payload);
-	if (ret < 0) {
+	if (ret < 0 || !payload.reset_type) {
 		LOG_ERR("ComputerSystem.Reset: Bad JSON (err=%d)", ret);
 		return HTTP_400_BAD_REQUEST;
 	}
