@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Red Hat, LLC
+# SOM boot mode selection (BOOT_SEL[3:0])
+
+config BOOTSEL
+	bool "SOM boot mode selection"
+	default y
+	depends on $(dt_alias_enabled,bootsel-0)
+	help
+	  Control the SOM boot source via BOOT_SEL[3:0] GPIO pins.
+	  Supports hardware mode (follow DIP switch) and software mode
+	  (MCU drives the pins).
