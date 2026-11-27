@@ -187,7 +187,12 @@ certificates](docs/https-certificates.md).
 * ``help`` command listing with hierarchical help (e.g., ``help config``).
 * ``config`` shell command can be used to configure the BMC.
 * ``power`` can power the host on and off. On the Nucleo board there is no
-  host CPU so one of the LEDs is a stand-in for a host power GPIO.
+  host CPU so one of the LEDs is a stand-in for a host power GPIO. Boards
+  that describe their rails with ``wallabmc,power-rail`` devicetree nodes
+  and list them in a ``wallabmc,power-sequencer`` node bring them up in
+  that order with power-good checks and down in the reverse, and, with
+  a ``reset-gpio-1`` alias, hold the host in reset until the last rail
+  is up; see [the bindings](dts/bindings/).
 
 ## Contributing
 

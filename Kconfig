@@ -485,8 +485,10 @@ config APP_HOST_POWER_PULSE
 	  refuses a reset when the host reads off, and presses at BMC
 	  boot for host auto power-on only when the host reads off.
 
-	  Without this, the GPIO is driven to a sustained level (the
-	  legacy nucleo LED-as-power-stand-in behaviour).
+	  Without this, a power-gpio-N alias is a build error: describe
+	  level-driven rails as wallabmc,power-rail nodes instead. The
+	  host is then off at BMC boot and reset-gpio-1 is held until
+	  power on; with this, the reset line is left released at boot.
 
 config APP_HOST_POWER_PULSE_MS
 	int "Short-press duration for power on/off (ms)"

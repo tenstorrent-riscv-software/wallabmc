@@ -3,6 +3,41 @@
 #include "tenstorrent/common/atlantis_wallabmc.dtsi"
 
 /*
+ * Host power rails (doc/hardware.rst, "SoC rails controlled by the
+ * MCU"): the ATX supply, then the SLT order, the M.2 slot and the
+ * handshakes. The SoC requires only the order of the rails on the way
+ * up; power off is the reverse.
+ */
+/ {
+	power-rails {
+		/*
+		 * ATX T1 + T3: up to 1 s from PS_ON to PWR_OK. On power off the
+		 * PSU stays on while the LPDDR5 PMIC shuts down.
+		 */
+		atx: atx {
+			compatible = "wallabmc,power-rail";
+			enable = <&atx_pson>;
+			power-good = <&atx_pwr_ok>;
+			power-good-timeout-ms = <2000>;
+			off-delay-ms = <100>;
+		};
+		/* TPS25200 turn-on plus the PCIe T_PVPERL before reset release */
+		m2: m2 {
+			compatible = "wallabmc,power-rail";
+			enable = <&m2_vcc_en>;
+			settle-ms = <120>;
+		};
+	};
+
+	power_sequencer: power-sequencer {
+		compatible = "wallabmc,power-sequencer";
+		power-on-sequence = <&atx &vcore_0v8 &mpm54304 &ddr_vdd &ddr_vdd2l
+				     &ddr_vddq &pcie_vp &pcie_vph &m2
+				     &pwr1_gd &pwr2_gd &otp_pwrrdy>;
+	};
+};
+
+/*
  * The EVB has no DIP switches on the mux selects and the pull-ups leave
  * them at 11 (no source), so route both SoC JTAG ports to the USB bridge
  * U73 until jtag.c takes a port for the MCU. The M.2 enable has no pull

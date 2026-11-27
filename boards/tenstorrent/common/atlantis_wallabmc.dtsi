@@ -30,6 +30,72 @@
 		};
 	};
 
+	/*
+	 * Host power rails common to both boards. Each board adds its first
+	 * rail (the EVB also its M.2 slot) and lists the order in its
+	 * power-sequencer node. The SoC specifies no delays between rails:
+	 * the settle times are the firmware's choice, covering the soft-start
+	 * of the regulators that have no power-good input, and are not yet
+	 * verified on hardware.
+	 */
+	power_rails: power-rails {
+		/*
+		 * PG_PH1 is the power good of the primary TPS546E25 and gates
+		 * VCORE. An LED on the net holds its high level at about 2 V,
+		 * which the MCU is not guaranteed to read as high and is not
+		 * yet measured (see Known issues in doc/hardware.rst). PG_PH2,
+		 * from the secondary of the stacked pair, is not used.
+		 */
+		vcore_0v8: vcore_0v8 {
+			compatible = "wallabmc,power-rail";
+			enable = <&vcore_0v8_en>;
+			power-good = <&pg_ph1>;
+		};
+		mpm54304: mpm54304 {
+			compatible = "wallabmc,power-rail";
+			enable = <&mpm54304_en>;
+			power-good = <&mpm54304_gpio>;
+		};
+		ddr_vdd: ddr_vdd {
+			compatible = "wallabmc,power-rail";
+			enable = <&ddr_vdd_en>;
+			power-good = <&pwr_good_lpddr5>;
+		};
+		ddr_vdd2l: ddr_vdd2l {
+			compatible = "wallabmc,power-rail";
+			enable = <&ddr_vdd2l_en>;
+			power-good = <&pwr_good_0v9>;
+		};
+		ddr_vddq: ddr_vddq {
+			compatible = "wallabmc,power-rail";
+			enable = <&ddr_vddq_en>;
+			settle-ms = <1>;
+		};
+		pcie_vp: pcie_vp {
+			compatible = "wallabmc,power-rail";
+			enable = <&pcie_vp_en>;
+			settle-ms = <5>;
+		};
+		pcie_vph: pcie_vph {
+			compatible = "wallabmc,power-rail";
+			enable = <&pcie_vph_en>;
+			settle-ms = <5>;
+		};
+		/* Handshakes to the SoC, driven once every rail is up */
+		pwr1_gd: pwr1_gd {
+			compatible = "wallabmc,power-rail";
+			enable = <&pwr1_gd_out>;
+		};
+		pwr2_gd: pwr2_gd {
+			compatible = "wallabmc,power-rail";
+			enable = <&pwr2_gd_out>;
+		};
+		otp_pwrrdy: otp_pwrrdy {
+			compatible = "wallabmc,power-rail";
+			enable = <&otp_pwrrdy_out>;
+		};
+	};
+
 	aliases {
 		jtagtck = &jtag0_tck;
 		jtagtms = &jtag0_tms;

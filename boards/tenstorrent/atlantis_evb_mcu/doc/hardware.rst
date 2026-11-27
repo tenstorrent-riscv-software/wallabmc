@@ -183,11 +183,11 @@ Implemented in WallaBMC
      - M.2 slot 3.3 V enable, hogged low from MCUboot until step 9
    * - PC7 / PC6
      - PG_PH1 / PG_PH2
-     - ``pg_ph1`` / ``pg_ph2``, rail ``vcore_0v8`` (step 2) ``power-good``
-       / ``power-good-optional``
+     - ``pg_ph1``, rail ``vcore_0v8`` (step 2) ``power-good``;
+       ``pg_ph2`` unused
      - VCORE phases in regulation, high; both clamped by LEDs to about
        2 V. PG_PH1 is required and fails step 2 when it does not read
-       high; PG_PH2 only warns (see Known issues)
+       high; PG_PH2 is not read (see Known issues)
    * - PG7
      - PWR_GOOD_LPDDR5
      - ``pwr_good_lpddr5``, rail ``ddr_vdd`` (step 4) ``power-good``
@@ -446,7 +446,7 @@ reverse.
      - VCORE_0V8_EN (PE13)
      - U22 + U2 TPS546E25
      - VCORE_0V8 80 A
-     - PG_PH1 (PC7); PG_PH2 (PC6) optional
+     - PG_PH1 (PC7)
    * - 3
      - MPM54304_EN (PE12)
      - U53 MPM54304
@@ -526,9 +526,7 @@ on the power-good inputs:
   so that a VCORE that never starts fails step 2 and backs out instead
   of letting the IO rails, handshakes and reset release proceed with no
   core supply.
-  ``pg_ph2`` is under ``power-good-optional``: step 2 checks it only
-  after the enable and a timeout logs
-  ``VCORE_0V8_EN: optional PG_PH2 not good after 1000 ms`` as a warning.
+  ``pg_ph2`` is not used.
   If PC7 reads low with VCORE up, see Known issues. PMBus STATUS_WORD at
   0x0D is the authoritative source.
 - MPM54304_GPIO is the module's open-drain power good (0.2 ms delay) with
@@ -542,13 +540,11 @@ on the power-good inputs:
 auto_poweron`` at BMC boot) runs the table. If the
 host is already on it does nothing and logs ``System Power State
 already: ON``. Otherwise it asserts SYS_RSTN and takes the steps in
-order. Each step first waits for its required power-good inputs to read
+order. Each step first waits for its power-good inputs to read
 low, failing with ``<enable>: <input> still good after N ms`` if one does
 not. It then drives the enable high and waits for the same inputs to
 read high, failing with ``<enable>: <input> not good after N ms``.
-Optional inputs are only checked after the enable; their timeout logs
-``<enable>: optional <input> not good after N ms`` as a warning and the
-sequence continues. The step then sleeps its settle time. Each step logs
+The step then sleeps its settle time. Each step logs
 ``<enable> on`` at debug level. After step 12 the sequencer releases
 SYS_RSTN, marks the host on and logs ``System Power State changed to:
 ON``. Any failure logs ``Power on failed at <enable>, powering off``,
@@ -831,10 +827,10 @@ Some of these change the BMC design, the rest are hardware questions.
   reads low with VCORE up, step 2 fails with
   ``VCORE_0V8_EN: PG_PH1 not good after 1000 ms`` and backs out, and
   VCORE is up during that second for a measurement. The fix is to remove
-  or buffer DS2, or to move ``pg_ph1`` to ``power-good-optional`` in
+  or buffer DS2, or to replace ``power-good`` on ``vcore_0v8`` with a
+  ``settle-ms`` in
   ``boards/tenstorrent/common/atlantis_wallabmc.dtsi``, which leaves VCORE
-  ungated. PG_PH2 is
-  optional, so step 2 only warns when PC6 does not read high.
+  ungated. PG_PH2 is not used.
 - **SoC held in reset by the USB bridge**: U73 ADBUS4 drives
   the reset OR directly and idles high as DTR#; see SoC reset.
 - **U61 A5 label**: both A4 and A5 of U61 are labelled GPIO12,
@@ -908,12 +904,11 @@ Bring-up checklist
 #. Measure PG_PH1/PG_PH2 at PC7/PC6 with VCORE on. PG_PH1 is required:
    if PC7 reads low, step 2 fails after 1 s with
    ``VCORE_0V8_EN: PG_PH1 not good after 1000 ms`` and backs out, so
-   measure during that second. Remove or buffer DS2, or move ``pg_ph1``
-   to ``power-good-optional`` in
+   measure during that second. Remove or buffer DS2, or replace
+   ``power-good`` on ``vcore_0v8`` with a ``settle-ms`` in
    ``boards/tenstorrent/common/atlantis_wallabmc.dtsi``,
-   which leaves VCORE ungated. PG_PH2 is optional: a low PC6 only warns
-   ``VCORE_0V8_EN: optional PG_PH2 not good after 1000 ms``; move it
-   into ``power-good`` if it reads a reliable high.
+   which leaves VCORE ungated. PG_PH2 is not read; add it
+   to ``power-good`` if PC6 reads a reliable high.
 #. Scope the rails during ``power on`` and check that the settle times in
    ``boards/tenstorrent/common/atlantis_wallabmc.dtsi`` and the overlay cover
    each regulator's soft-start; they are not yet verified on hardware.

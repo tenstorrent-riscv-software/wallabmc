@@ -25,6 +25,7 @@ LOG_MODULE_REGISTER(wallabmc_power);
 #define GPIO_RESET DT_ALIAS(reset_gpio_1)
 #define GPIO_POWER_LED  DT_ALIAS(power_led)
 
+/* Momentary power button(s) of a CONFIG_APP_HOST_POWER_PULSE board */
 static const struct gpio_dt_spec power_gpios[] = {
 #if DT_NODE_HAS_STATUS_OKAY(GPIO_POWER_1)
 	GPIO_DT_SPEC_GET(GPIO_POWER_1, gpios),
@@ -32,6 +33,76 @@ static const struct gpio_dt_spec power_gpios[] = {
 #if DT_NODE_HAS_STATUS_OKAY(GPIO_POWER_2)
 	GPIO_DT_SPEC_GET(GPIO_POWER_2, gpios),
 #endif
+};
+
+/*
+ * A power-good input of a rail: it must read inactive before the enable
+ * is asserted and active afterwards.
+ */
+struct power_good {
+	struct gpio_dt_spec gpio;
+	const char *name;
+};
+
+/*
+ * A host power rail: an enable to drive, the power-good inputs to wait for
+ * and a settle time before the next rail comes up. Power off pauses
+ * off_delay_ms before a rail that the rails switched off earlier need
+ * while they shut down.
+ */
+struct power_rail {
+	struct gpio_dt_spec enable;
+	const struct power_good *good;
+	uint8_t ngood;
+	uint32_t good_timeout_ms;
+	uint32_t settle_ms;
+	uint32_t off_delay_ms;
+	const char *name;
+};
+
+#define GPIO_NAME(node) DT_PROP_OR(node, label, DT_NODE_FULL_NAME(node))
+
+#define RAIL(node) UTIL_CAT(power_rail_, DT_DEP_ORD(node))
+#define RAIL_GOOD(node) UTIL_CAT(power_good_, DT_DEP_ORD(node))
+
+#define POWER_GOOD(node, prop, idx)						\
+	{ .gpio = GPIO_DT_SPEC_GET(DT_PHANDLE_BY_IDX(node, prop, idx), gpios),	\
+	  .name = GPIO_NAME(DT_PHANDLE_BY_IDX(node, prop, idx)) },
+
+#define RAIL_GOOD_ARRAY(node)							\
+	COND_CODE_1(DT_NODE_HAS_PROP(node, power_good),				\
+		(static const struct power_good RAIL_GOOD(node)[] = {		\
+			DT_FOREACH_PROP_ELEM(node, power_good, POWER_GOOD)	\
+		};), ())
+
+/*
+ * wallabmc,power-rail nodes. The binding gives the timeout, settle and
+ * off delay a default, so DT_PROP() is defined for every rail.
+ */
+#define RAIL_DEFINE(node)							\
+	RAIL_GOOD_ARRAY(node)							\
+	static const struct power_rail RAIL(node) = {				\
+		.enable = GPIO_DT_SPEC_GET(DT_PHANDLE(node, enable), gpios),	\
+		.good = COND_CODE_1(DT_NODE_HAS_PROP(node, power_good),		\
+				    (RAIL_GOOD(node)), (NULL)),			\
+		.ngood = DT_PROP_LEN_OR(node, power_good, 0),			\
+		.good_timeout_ms = DT_PROP(node, power_good_timeout_ms),	\
+		.settle_ms = DT_PROP(node, settle_ms),				\
+		.off_delay_ms = DT_PROP(node, off_delay_ms),			\
+		.name = DT_PROP_OR(DT_PHANDLE(node, enable), label,		\
+				   DT_NODE_FULL_NAME(node)),			\
+	};
+
+DT_FOREACH_STATUS_OKAY(wallabmc_power_rail, RAIL_DEFINE)
+
+#define SEQUENCE_RAIL(node, prop, idx) &RAIL(DT_PHANDLE_BY_IDX(node, prop, idx)),
+
+#define POWER_SEQUENCE(node, prop) DT_FOREACH_PROP_ELEM(node, prop, SEQUENCE_RAIL)
+
+/* Empty on a board without a sequencer */
+static const struct power_rail *const power_on_sequence[] = {
+	DT_FOREACH_STATUS_OKAY_VARGS(wallabmc_power_sequencer, POWER_SEQUENCE,
+				     power_on_sequence)
 };
 
 static const struct gpio_dt_spec power_led_gpio =
@@ -103,6 +174,14 @@ static int host_power_lock(void)
  */
 static bool system_power_state = false;
 
+/*
+ * A power off that failed leaves the host neither on nor off: rails are
+ * down and reset is asserted only as far as the writes got, whatever
+ * system_power_state says. Power on and reset are refused until a power
+ * off succeeds.
+ */
+static bool power_off_failed;
+
 /* 1 if the power-good input reads on, 0 if off, -errno if the read failed */
 static int power_good_read(void)
 {
@@ -144,7 +223,32 @@ static const char *power_state_name(int state)
 	return state ? "on" : "off";
 }
 
+static int reset_set(int value)
+{
+	int ret;
+
+	/* A board without a reset line has nothing to drive */
+	if (!DT_NODE_HAS_STATUS_OKAY(GPIO_RESET))
+		return 0;
+
+	/* Still reachable after reset_init() failed: main() carries on */
+	if (!gpio_is_ready_dt(&gpio_reset)) {
+		LOG_ERR("Reset GPIO not ready");
+		return -ENODEV;
+	}
+
+	ret = gpio_pin_set_dt(&gpio_reset, value);
+	if (ret < 0)
+		LOG_ERR("Could not %s reset GPIO: %d",
+			value ? "assert" : "deassert", ret);
+
+	return ret;
+}
+
 #ifdef CONFIG_APP_HOST_POWER_PULSE
+BUILD_ASSERT(ARRAY_SIZE(power_on_sequence) == 0,
+	     "a momentary power button cannot drive a wallabmc,power-sequencer");
+
 /* Drive every power GPIO to val; try them all so one failure cannot leave another asserted */
 static int power_button_set(int val)
 {
@@ -236,50 +340,199 @@ static int power_press(void)
 	return power_pulse(CONFIG_APP_HOST_POWER_PULSE_MS);
 }
 #else /* !CONFIG_APP_HOST_POWER_PULSE */
+BUILD_ASSERT(ARRAY_SIZE(power_gpios) == 0,
+	     "power-gpio-N is a momentary button (CONFIG_APP_HOST_POWER_PULSE); "
+	     "describe a level-driven rail as a wallabmc,power-rail node");
+
+static int power_led_set(int value)
+{
+	int ret;
+
+	if (!DT_NODE_HAS_STATUS_OKAY(GPIO_POWER_LED) ||
+	    !gpio_is_ready_dt(&power_led_gpio))
+		return 0;
+
+	ret = gpio_pin_set_dt(&power_led_gpio, value);
+	if (ret < 0)
+		LOG_ERR("Could not %s power LED",
+			value ? "assert" : "deassert");
+
+	return ret;
+}
+
+/* Drive a rail's enable inactive */
+static int rail_off(const struct power_rail *rail)
+{
+	int ret;
+
+	if (rail->off_delay_ms)
+		k_msleep(rail->off_delay_ms);
+
+	ret = gpio_pin_set_dt(&rail->enable, 0);
+	if (ret < 0)
+		LOG_ERR("Could not deassert %s: %d", rail->name, ret);
+
+	return ret;
+}
+
+/* Power off every rail, in the reverse of power-on-sequence order */
+static int rails_off(void)
+{
+	int ret = 0;
+	int i;
+
+	for (i = (int)ARRAY_SIZE(power_on_sequence) - 1; i >= 0; i--) {
+		int rc = rail_off(power_on_sequence[i]);
+
+		if (rc < 0)
+			ret = rc;
+	}
+
+	return ret;
+}
+
+/* Wait until the power-good inputs of a rail read level */
+static int rail_wait_good(const struct power_rail *rail, int level)
+{
+	int64_t deadline = k_uptime_get() + rail->good_timeout_ms;
+
+	for (;;) {
+		const struct power_good *late = NULL;
+		int i;
+
+		for (i = 0; i < rail->ngood; i++) {
+			const struct power_good *good = &rail->good[i];
+			int val;
+
+			val = gpio_pin_get_dt(&good->gpio);
+			if (val < 0) {
+				LOG_ERR("%s: could not read %s: %d", rail->name,
+					good->name, val);
+				return val;
+			}
+
+			if (val != level) {
+				late = good;
+				break;
+			}
+		}
+
+		if (!late)
+			return 0;
+
+		if (k_uptime_get() >= deadline) {
+			LOG_ERR("%s: %s %s after %u ms", rail->name, late->name,
+				level ? "not good" : "still good",
+				rail->good_timeout_ms);
+			return -ETIMEDOUT;
+		}
+
+		k_msleep(1);
+	}
+}
+
+static int rail_on(const struct power_rail *rail)
+{
+	int ret;
+
+	/* A power good that is up before its enable cannot be trusted */
+	ret = rail_wait_good(rail, 0);
+	if (ret < 0)
+		return ret;
+
+	ret = gpio_pin_set_dt(&rail->enable, 1);
+	if (ret < 0) {
+		LOG_ERR("Could not assert %s: %d", rail->name, ret);
+		return ret;
+	}
+
+	ret = rail_wait_good(rail, 1);
+	if (ret < 0)
+		return ret;
+
+	LOG_DBG("%s on", rail->name);
+
+	if (rail->settle_ms)
+		k_msleep(rail->settle_ms);
+
+	return 0;
+}
+
 static int power_on(void)
 {
 	int i, ret;
 
-	for (i = 0; i < ARRAY_SIZE(power_gpios); i++) {
-		ret = gpio_pin_set_dt(&power_gpios[i], 1);
+	/* Neither on nor off: nothing to skip, nothing safe to sequence */
+	if (power_off_failed) {
+		LOG_ERR("Power off did not complete; power off before power on");
+		return -EIO;
+	}
+
+	/* Idempotent: a repeated power on must not reset a running host */
+	if (system_power_state) {
+		LOG_INF("System Power State already: ON");
+		return 0;
+	}
+
+	/* Hold the host in reset while its rails come up */
+	ret = reset_set(1);
+	if (ret < 0)
+		return ret;
+
+	for (i = 0; i < ARRAY_SIZE(power_on_sequence); i++) {
+		const struct power_rail *rail = power_on_sequence[i];
+
+		ret = rail_on(rail);
 		if (ret < 0) {
-			LOG_ERR("Could not assert power GPIO %d", i);
-			return -1;
+			LOG_ERR("Power on failed at %s, powering off", rail->name);
+			rails_off();
+			return ret;
 		}
 	}
 
-	if (DT_NODE_HAS_STATUS_OKAY(GPIO_POWER_LED) &&
-	    gpio_is_ready_dt(&power_led_gpio)) {
-		/* Don't fail the operation on LED failure */
-		if (gpio_pin_set_dt(&power_led_gpio, 1) < 0)
-			LOG_ERR("Could not assert power LED");
+	ret = reset_set(0);
+	if (ret < 0) {
+		rails_off();
+		return ret;
 	}
 
+	/* Don't fail the operation on LED failure */
+	(void)power_led_set(1);
 	system_power_state = true;
+	LOG_INF("System Power State changed to: ON");
 
 	return 0;
 }
 
 static int power_off(void)
 {
-	int i, ret;
+	int ret, rc;
 
-	for (i = 0; i < ARRAY_SIZE(power_gpios); i++) {
-		ret = gpio_pin_set_dt(&power_gpios[i], 0);
-		if (ret < 0) {
-			LOG_ERR("Could not deassert power GPIO %d", i);
-			return -1;
-		}
+	/*
+	 * Not skipped when the host is already off: a failed power off or
+	 * power-on back-out can leave an enable asserted, and this is the
+	 * retry.
+	 */
+
+	/* Assert reset before the rails go away */
+	ret = reset_set(1);
+
+	rc = rails_off();
+	if (rc < 0)
+		ret = rc;
+
+	/* Still on as far as anyone can tell */
+	if (ret < 0) {
+		power_off_failed = true;
+		return ret;
 	}
 
-	if (DT_NODE_HAS_STATUS_OKAY(GPIO_POWER_LED) &&
-	    gpio_is_ready_dt(&power_led_gpio)) {
-		/* Don't fail the operation on LED failure */
-		if (gpio_pin_set_dt(&power_led_gpio, 0) < 0)
-			LOG_ERR("Could not deassert power LED");
-	}
-
+	/* Don't fail the operation on LED failure */
+	(void)power_led_set(0);
+	if (system_power_state)
+		LOG_INF("System Power State changed to: OFF");
 	system_power_state = false;
+	power_off_failed = false;
 
 	return 0;
 }
@@ -351,7 +604,7 @@ out:
 
 int power_set_state(bool on)
 {
-	int ret, state;
+	int ret;
 
 	ret = host_power_lock();
 	if (ret < 0)
@@ -369,21 +622,19 @@ int power_set_state(bool on)
 		return ret;
 	}
 
-	state = host_power_state();
 	if (IS_ENABLED(CONFIG_APP_HOST_POWER_PULSE))
 		/*
 		 * A reading, not a change: a power-good input lags the press,
 		 * and the press may have been skipped.
 		 */
-		LOG_INF("Host power state: %s", power_state_name(state));
-	else
-		LOG_INF("System Power State changed to: %s", state ? "ON" : "OFF");
+		LOG_INF("Host power state: %s",
+			power_state_name(host_power_state()));
 	return 0;
 }
 
 int power_init(void)
 {
-	int i;
+	int i, j;
 
 	/*
 	 * There is no support for host power state to persist over BMC
@@ -402,6 +653,35 @@ int power_init(void)
 		if (gpio_pin_configure_dt(&power_gpios[i], GPIO_OUTPUT_INACTIVE) < 0) {
 			LOG_INF("Could not configure power GPIO %d\n", i);
 			return -1;
+		}
+	}
+
+	for (i = 0; i < ARRAY_SIZE(power_on_sequence); i++) {
+		const struct power_rail *rail = power_on_sequence[i];
+
+		if (!gpio_is_ready_dt(&rail->enable)) {
+			LOG_INF("Power GPIO %s not ready\n", rail->name);
+			return -1;
+		}
+
+		if (gpio_pin_configure_dt(&rail->enable, GPIO_OUTPUT_INACTIVE) < 0) {
+			LOG_INF("Could not configure power GPIO %s\n", rail->name);
+			return -1;
+		}
+
+		for (j = 0; j < rail->ngood; j++) {
+			const struct power_good *good = &rail->good[j];
+
+			if (!gpio_is_ready_dt(&good->gpio)) {
+				LOG_INF("Power good GPIO %s not ready\n", good->name);
+				return -1;
+			}
+
+			if (gpio_pin_configure_dt(&good->gpio, GPIO_INPUT) < 0) {
+				LOG_INF("Could not configure power good GPIO %s\n",
+					good->name);
+				return -1;
+			}
 		}
 	}
 
@@ -587,11 +867,16 @@ int reset_init(void)
 	}
 
 	/*
-	 * Start inactive so the pin is hi-Z (open-drain) / driven inactive
-	 * at boot. GPIO_OUTPUT_ACTIVE would briefly assert reset to the host
+	 * Start as power_off() leaves it: the host is off at BMC boot
+	 * (power_init()) and stays in reset until power_on() releases it.
+	 * A momentary button may belong to a host that is already running:
+	 * start inactive so the pin is hi-Z (open-drain) / driven inactive
+	 * at boot, since GPIO_OUTPUT_ACTIVE would assert reset to the host
 	 * every time the BMC starts up.
 	 */
-	ret = gpio_pin_configure_dt(&gpio_reset, GPIO_OUTPUT_INACTIVE);
+	ret = gpio_pin_configure_dt(&gpio_reset,
+				    IS_ENABLED(CONFIG_APP_HOST_POWER_PULSE) ?
+				    GPIO_OUTPUT_INACTIVE : GPIO_OUTPUT_ACTIVE);
 	if (ret < 0) {
 		LOG_INF("Could not configure reset GPIO\n");
 		return -1;
@@ -614,7 +899,7 @@ int power_reset(void)
 		 * We are faking power and reset control with the
 		 * power LED, so continue and blink the LED for reset.
 		 */
-		if (ARRAY_SIZE(power_gpios) > 0) {
+		if (ARRAY_SIZE(power_gpios) > 0 || ARRAY_SIZE(power_on_sequence) > 0) {
 			LOG_INF("No reset GPIO");
 			return -ENOTSUP;
 		}
@@ -631,19 +916,20 @@ int power_reset(void)
 		goto out;
 	}
 
+	/* Neither on nor off: leave reset as the failed power off left it */
+	if (power_off_failed) {
+		LOG_ERR("Power off did not complete; power off before reset");
+		ret = -EIO;
+		goto out;
+	}
+
 	/* A reset pulse does nothing to a host that is off, so send it blind */
 	if (state < 0)
 		LOG_WRN("Host power state unknown; pulsing reset anyway");
 
-	if (DT_NODE_HAS_STATUS_OKAY(GPIO_RESET) &&
-	    gpio_is_ready_dt(&gpio_reset)) {
-		ret = gpio_pin_set_dt(&gpio_reset, 1);
-		if (ret < 0) {
-			LOG_INF("Could not assert RESET GPIO\n");
-			ret = -1;
-			goto out;
-		}
-	}
+	ret = reset_set(1);
+	if (ret < 0)
+		goto out;
 
 	if (DT_NODE_HAS_STATUS_OKAY(GPIO_POWER_LED) &&
 	    gpio_is_ready_dt(&power_led_gpio)) {
@@ -657,17 +943,7 @@ int power_reset(void)
 		k_msleep(1000);
 	}
 
-	if (DT_NODE_HAS_STATUS_OKAY(GPIO_RESET) &&
-	    gpio_is_ready_dt(&gpio_reset)) {
-		ret = gpio_pin_set_dt(&gpio_reset, 0);
-		if (ret < 0) {
-			LOG_INF("Could not deassert RESET GPIO\n");
-			ret = -1;
-			goto out;
-		}
-	}
-
-	ret = 0;
+	ret = reset_set(0);
 out:
 	k_mutex_unlock(&host_power_mutex);
 	return ret;
