@@ -638,6 +638,10 @@
 									<span class="data-value" id="bmc-zephyr-version">Loading...</span>
 								</div>
 							</div>
+							<h3>Reset</h3>
+							<div class="controls-grid">
+								<button class="danger" onclick="resetBmc()">Reset BMC</button>
+							</div>
 							<h3>Appearance</h3>
 							<div class="grid-4-col">
 								<div class="info-item">
@@ -1538,6 +1542,21 @@
 				else
 					alert(`Failed: ${err.message}`);
 				scheduleRefresh(3000);
+			}
+		}
+
+		async function resetBmc() {
+			if (!confirm("Reset the BMC? The web interface will log out while it reboots."))
+				return;
+
+			try {
+				stopPolling();
+				const actionUri = `${managerIdPath}/Actions/Manager.Reset`;
+				await redfishCall(actionUri, 'POST', { "ResetType": "ForceRestart" });
+			} catch (err) {
+				// WallaBMC does not reply so the redfishCall will error here.
+			} finally {
+				logout()
 			}
 		}
 
