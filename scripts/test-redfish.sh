@@ -28,6 +28,7 @@ EOF
 
 run_all=0
 have_https=1
+have_https_http2=1
 IP=""
 for arg in "$@"; do
 	case "$arg" in
@@ -233,7 +234,7 @@ run_curl_redirect_tests() {
 	check_redirect "HTTP/1.1 without Host" "https://$IP/redfish/v1" \
 		--http1.1 -H "Host:" "http://$IP/redfish/v1"
 
-	if curl -V | grep -q '^Features:.* HTTP2'; then
+	if [ "$have_https_http2" -eq 1 ]; then
 		# HTTP/2 via an h2c upgrade
 		check_redirect "h2c upgrade /" "https://$IP/" --http2 "http://$IP/"
 		check_redirect "h2c upgrade /redfish/v1" "https://$IP/redfish/v1" \
@@ -259,6 +260,15 @@ run_curl_redirect_tests() {
 code="$(curl -sk -o /dev/null -w '%{http_code}' "https://$IP/redfish/v1")"
 if [ "$code" != 200 ]; then
 	have_https=0
+fi
+
+if [ "$have_https" -eq 1 ] && curl -V | grep -q '^Features:.* HTTP2'; then
+	https_version="$(curl --http2 -skI -o /dev/null -w '%{http_version}' "https://$IP/redfish/v1")"
+	if [[ $https_version != "2" ]]; then
+		have_https_http2=0
+	fi
+else
+	have_https_http2=0
 fi
 
 # Plain HTTP redirects to HTTPS when built with CONFIG_APP_HTTP=n.
