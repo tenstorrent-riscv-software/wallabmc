@@ -1,0 +1,49 @@
+name: DCO
+
+on:
+  push:
+    # Not tags, they don't add commits. Not the merge queue's temporary
+    # branches, merge_group checks those.
+    branches: ['**', '!gh-readonly-queue/**']
+  pull_request:
+  # Required checks have to run in the merge queue too
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  signoff:
+    name: Signed-off-by check
+    # Nothing to check when a branch is deleted
+    if: github.event_name != 'push' || !github.event.deleted
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history so the base and head commits are present.
+          fetch-depth: 0
+      - name: Check Signed-off-by
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          MG_BASE: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD: ${{ github.event.merge_group.head_sha }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            range="$PR_BASE..$PR_HEAD"
+          elif [ "$EVENT" = merge_group ]; then
+            range="$MG_BASE..$MG_HEAD"
+          elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            range="$BEFORE..$AFTER"
+          else
+            # A new branch, or a force push whose old head is gone: check
+            # what isn't on the default branch.
+            range="origin/$DEFAULT_BRANCH..$AFTER"
+          fi
+          echo "Checking $range"
+          python3 scripts/check_signoff.py --range "$range"
