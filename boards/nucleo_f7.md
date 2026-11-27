@@ -1,4 +1,10 @@
-## Nucleo F767ZI Documentation
+## Nucleo F7 family Documentation
+
+WallaBMC is developed using Nucleo STM32F7 family of microcontrollers. The
+primary target is the nucleo_f767zi. The following boards are supported:
+
+ * nucleo_f767zi
+ * nucleo_f756zg
 
 ### BMC serial console
 

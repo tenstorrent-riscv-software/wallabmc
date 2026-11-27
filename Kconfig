@@ -599,4 +599,9 @@ endchoice
 
 endif # ETH_PHY_DRIVER
 
+# Default CPU caches to on. Can be dropped when
+# https://github.com/zephyrproject-rtos/zephyr/pull/126514 lands.
+configdefault CACHE_MANAGEMENT
+	default y if SOC_SERIES_STM32F7X
+
 source "Kconfig.zephyr"

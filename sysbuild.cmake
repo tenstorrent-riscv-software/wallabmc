@@ -27,3 +27,10 @@ if(SB_CONFIG_BOOTLOADER_MCUBOOT AND key_in_build_dir AND
     "Images from this build only boot with the bootloader from this build. "
     "Set SB_CONFIG_BOOT_SIGNATURE_KEY_FILE to use your own key.")
 endif()
+
+# Run MCUboot with the I and D caches on, as the application does (see
+# CACHE_MANAGEMENT in Kconfig). BOOT_DISABLE_CACHES defaults to y, so they
+# are flushed and disabled before jumping to the application.
+if(SB_CONFIG_BOOTLOADER_MCUBOOT AND SB_CONFIG_SOC_SERIES_STM32F7X)
+  set_config_bool(mcuboot CONFIG_CACHE_MANAGEMENT y)
+endif()

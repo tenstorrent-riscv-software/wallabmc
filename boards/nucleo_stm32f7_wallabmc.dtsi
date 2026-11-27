@@ -1,6 +1,6 @@
 /delete-node/ &quadspi_memory;
 
-// WallaBMC configuration shared by the Nucleo F767ZI and its atlantis variant
+// WallaBMC configuration shared by the STM32F7 Nucleo-144 boards
 / {
     chosen {
         zephyr,rtc = &rtc;
@@ -52,6 +52,12 @@
 
 &spi4 {
      status = "disabled";
+};
+
+// PCLK2 is 108MHz and the ADC clock must not exceed 36MHz, so divide
+// by 4 for 27MHz. Zephyr's nucleo_f767zi sets 2, which is 54MHz.
+&adc123_common {
+    st,adc-prescaler = <4>;
 };
 
 &die_temp {
