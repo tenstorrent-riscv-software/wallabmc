@@ -1623,6 +1623,11 @@
 			if (item) item.classList.add('active');
 			closeSidebar();
 
+			if (name !== 'host-console' && hostWsConsole)
+				closeTerminal(true);
+			if (name !== 'bmc-shell' && bmcWsConsole)
+				closeTerminal(false);
+
 			if (name === 'host-console' && !hostWsConsole) {
 				const socketProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 				const wsUrl = `${socketProtocol}//${window.location.host}/console/host`;
