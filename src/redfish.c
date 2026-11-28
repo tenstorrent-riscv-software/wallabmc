@@ -26,6 +26,7 @@
 #include <string.h>
 #include <strings.h>
 
+#include "main.h"
 #include "config.h"
 #include "http.h"
 #include "power.h"
@@ -564,6 +565,28 @@ static const struct json_obj_descr link_descr[] = {
 				  odata_id, JSON_TOK_STRING),
 };
 
+/* ResetType array */
+struct redfish_reset_action {
+	const char *target;
+	const char *reset_type_values[4];
+	size_t reset_type_values_len;
+};
+static const struct json_obj_descr reset_action_descr[] = {
+	JSON_OBJ_DESCR_PRIM(struct redfish_reset_action, target, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_ARRAY_NAMED(struct redfish_reset_action,
+				   "ResetType@Redfish.AllowableValues",
+				   reset_type_values, 4, reset_type_values_len,
+				   JSON_TOK_STRING),
+};
+
+struct redfish_reset_payload {
+	const char *reset_type;
+};
+static const struct json_obj_descr reset_descr[] = {
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_reset_payload, "ResetType",
+				  reset_type, JSON_TOK_STRING)
+};
+
 
 /*** /redfish/ ***/
 struct redfish_version {
@@ -1039,6 +1062,17 @@ REDFISH_HANDLER(managers_collection, "/redfish/v1/Managers",
 		managers_collection_get_handler, NULL, NULL);
 
 /*** /redfish/v1/Managers/bmc ***/
+
+/* Manager: Actions nested object */
+struct redfish_manager_actions {
+	struct redfish_reset_action reset_action;
+};
+
+static const struct json_obj_descr manager_actions_descr[] = {
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_manager_actions, "#Manager.Reset",
+				    reset_action, reset_action_descr),
+};
+
 struct redfish_manager_oem_wallabmc {
 	const char *odata_type;
 	const char *zephyr_version;
@@ -1068,6 +1102,7 @@ struct redfish_manager {
 	const char *firmware_version;
 	struct redfish_manager_oem oem;
 	struct redfish_link ethernet_interfaces;
+	struct redfish_manager_actions actions;
 };
 static const struct json_obj_descr manager_descr[] = {
 	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_manager, "@odata.id", odata_id, JSON_TOK_STRING),
@@ -1079,6 +1114,7 @@ static const struct json_obj_descr manager_descr[] = {
 	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_manager, "FirmwareVersion", firmware_version, JSON_TOK_STRING),
 	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_manager, "Oem", oem, manager_oem_descr),
 	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_manager, "EthernetInterfaces", ethernet_interfaces, link_descr),
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_manager, "Actions", actions, manager_actions_descr),
 };
 
 static const char *get_iso_time(void)
@@ -1135,6 +1171,15 @@ static int manager_get_handler(struct http_resource_user_data *user_data)
 		} },
 		.ethernet_interfaces = {
 			.odata_id = "/redfish/v1/Managers/bmc/EthernetInterfaces",
+		},
+		.actions = {
+			.reset_action = {
+				.target = "/redfish/v1/Managers/bmc/Actions/Manager.Reset",
+				.reset_type_values = {
+					"ForceRestart"
+				},
+				.reset_type_values_len = 1
+			},
 		},
 	};
 	int ret;
@@ -1509,6 +1554,47 @@ REDFISH_HANDLER(network_protocol, "/redfish/v1/Managers/bmc/NetworkProtocol",
 		true, /* require auth */
 		network_protocol_get_handler, network_protocol_patch_handler, NULL);
 
+/* POST /redfish/v1/Managers/bmc/Actions/Manager.Reset */
+static int manager_reset_post_handler(struct http_resource_user_data *user_data)
+{
+	struct redfish_reset_payload payload;
+	int ret;
+
+	memset(&payload, 0, sizeof(payload));
+	ret = json_obj_parse(user_data->data_buffer, user_data->data_len,
+			     reset_descr, ARRAY_SIZE(reset_descr), &payload);
+	if (ret < 0 || !payload.reset_type) {
+		LOG_ERR("Manager.Reset: Bad JSON (err=%d)", ret);
+		return HTTP_400_BAD_REQUEST;
+	}
+
+	LOG_INF("Manager Reset Action: %s", payload.reset_type);
+
+	if (strcmp(payload.reset_type, "ForceRestart") == 0) {
+		bmc_reboot();
+
+		/*
+		 * A successful restart does not return success. This is an
+		 * implementation detail. We could schedule work for later
+		 * to do the reboot and return success here, but then there
+		 * is no guarantee that would succeed. This is simpler for
+		 * now and usable by the WebUI. If a client really wants
+		 * success here, we could change it.
+		 */
+
+		LOG_ERR("Manager.Reset: type %s operation failed",
+				payload.reset_type);
+		return HTTP_500_INTERNAL_SERVER_ERROR;
+	} else {
+		LOG_ERR("Manager.Reset: Bad reset type");
+		return HTTP_400_BAD_REQUEST;
+	}
+}
+
+REDFISH_HANDLER(manager_reset, "/redfish/v1/Managers/bmc/Actions/Manager.Reset",
+		true, /* require auth */
+		NULL, NULL, manager_reset_post_handler);
+
 /*** /redfish/v1/Systems ***/
 /* GET /redfish/v1/Systems */
 static int systems_collection_get_handler(struct http_resource_user_data *user_data)
@@ -1560,26 +1646,13 @@ static const char *power_state_json(void)
 	return state ? "\"On\"" : "\"Off\"";
 }
 
-/* System Info: ResetType array */
-struct redfish_reset_action {
-	const char *target;
-	const char *reset_type_values[4];
-	size_t reset_type_values_len;
-};
-static const struct json_obj_descr reset_action_descr[] = {
-	JSON_OBJ_DESCR_PRIM(struct redfish_reset_action, target, JSON_TOK_STRING),
-	JSON_OBJ_DESCR_ARRAY_NAMED(struct redfish_reset_action,
-				   "ResetType@Redfish.AllowableValues",
-				   reset_type_values, 4, reset_type_values_len,
-				   JSON_TOK_STRING),
-};
-
 /* System Info: Actions nested object */
-struct redfish_actions {
+struct redfish_system_actions {
 	struct redfish_reset_action reset_action;
 };
-static const struct json_obj_descr actions_descr[] = {
-	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_actions, "#ComputerSystem.Reset",
+
+static const struct json_obj_descr system_actions_descr[] = {
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_system_actions, "#ComputerSystem.Reset",
 				    reset_action, reset_action_descr),
 };
 
@@ -1640,7 +1713,7 @@ struct redfish_computer_system {
 	const char *power_state;
 	struct redfish_processor_summary processor_summary;
 	struct redfish_memory_summary memory_summary;
-	struct redfish_actions actions;
+	struct redfish_system_actions actions;
 	struct redfish_system_links links;
 };
 static const struct json_obj_descr computer_system_descr[] = {
@@ -1673,7 +1746,7 @@ static const struct json_obj_descr computer_system_descr[] = {
 	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_computer_system, "Links",
 				    links, system_links_descr),
 	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_computer_system, "Actions",
-				    actions, actions_descr),
+				    actions, system_actions_descr),
 };
 
 /*
@@ -1788,14 +1861,6 @@ REDFISH_HANDLER(system, "/redfish/v1/Systems/system",
 		true, /* require auth */
 		system_get_handler, system_patch_handler, NULL);
 
-struct redfish_reset_payload {
-	const char *reset_type;
-};
-static const struct json_obj_descr reset_descr[] = {
-	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_reset_payload, "ResetType",
-				  reset_type, JSON_TOK_STRING)
-};
-
 /* POST /redfish/v1/Systems/system/Actions/ComputerSystem.Reset */
 static int system_reset_post_handler(struct http_resource_user_data *user_data)
 {
@@ -1805,12 +1870,12 @@ static int system_reset_post_handler(struct http_resource_user_data *user_data)
 	memset(&payload, 0, sizeof(payload));
 	ret = json_obj_parse(user_data->data_buffer, user_data->data_len,
 			     reset_descr, ARRAY_SIZE(reset_descr), &payload);
-	if (ret < 0) {
+	if (ret < 0 || !payload.reset_type) {
 		LOG_ERR("ComputerSystem.Reset: Bad JSON (err=%d)", ret);
 		return HTTP_400_BAD_REQUEST;
 	}
 
-	LOG_INF("Reset Action: %s", payload.reset_type);
+	LOG_INF("System Reset Action: %s", payload.reset_type);
 
 	if (strcmp(payload.reset_type, "On") == 0) {
 		ret = power_set_state(true);

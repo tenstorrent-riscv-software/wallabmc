@@ -136,6 +136,7 @@ config MBEDTLS_DEBUG_LEVEL
 config MBEDTLS_HEAP_SIZE
 	int
 	depends on APP_CRYPTO
+	default 61440 if APP_HTTP_BULK_UPLOAD
 	default 57344 if APP_HTTPS_PUBLIC_KEY
 	default 49152
 
@@ -164,6 +165,10 @@ config NET_SOCKETS_TLS_MAX_CONTEXTS
 	depends on APP_CRYPTO
 	default 6
 
+config APP_HTTP_BULK_UPLOAD
+	bool "Support large uploads (e.g., firmware) via HTTP/HTTPS"
+	depends on APP_HTTP || APP_HTTPS
+
 # The Kconfig comments for this option say TLS standards require
 # 16k size, but this requires several 16K allocations each for
 # send and recv on the heap so it's too large. Apparently browsers
@@ -173,6 +178,7 @@ config NET_SOCKETS_TLS_MAX_CONTEXTS
 config MBEDTLS_SSL_IN_CONTENT_LEN
 	int
 	depends on APP_CRYPTO
+	default 16384 if APP_HTTP_BULK_UPLOAD
 	default 4096
 
 config MBEDTLS_SSL_OUT_CONTENT_LEN
@@ -196,11 +202,18 @@ config APP_HTTP
 	  Can only be disabled if APP_HTTPS is enabled. Defaults to disabled
 	  if APP_HTTPS is enabled, otherwise it's always enabled.
 
-# Room for the captured Authorization, X-Auth-Code and Host headers at
-# HTTP_SERVER_MAX_HEADER_LEN.
+# Room for the captured Authorization, X-Auth-Code, Host headers at
+# HTTP_SERVER_MAX_HEADER_LEN. Bulk uploads also have a content-length.
 config HTTP_SERVER_CAPTURE_HEADER_BUFFER_SIZE
 	int
+	default 256 if APP_HTTP_BULK_UPLOAD
 	default 192
+
+# Multiple streams can concurrently access a resource which requires
+# special handling we don't do.
+config HTTP_SERVER_MAX_STREAMS
+	int
+	default 1
 
 # Room for the redirect to HTTPS over HTTP/2, with the longest Location.
 # Checked by a BUILD_ASSERT in http.c.
@@ -380,9 +393,16 @@ config LOG_PROCESS_THREAD_STACK_SIZE
 	depends on LOG_BACKEND_WS
 	default 2560
 
+# > eth_stm32_hal: Failed to obtain RX buffer
+# > esp32_wifi: Failed to allocate net buffer
+#
+# These messages can appear when sending bulk data to wallabmc if the TCP
+# window is too large (> 8192). It is possible other configuration parameters
+# should be used to avoid the problem, but we limit it here. The XIAO wifi
+# board can't even use 8192 and overrides that in its .conf
 config NET_TCP_MAX_RECV_WINDOW_SIZE
 	int
-	default 20480
+	default 8192
 
 # Increase retry and timeout limits
 config NET_TCP_INIT_RETRANSMISSION_TIMEOUT
