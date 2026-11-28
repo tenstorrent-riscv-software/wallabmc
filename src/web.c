@@ -23,6 +23,8 @@ LOG_MODULE_REGISTER(wallabmc_webui, LOG_LEVEL_INF);
 static const uint8_t index_html_gz[] = {
 #include "index.html.gz.inc"
 };
+BUILD_ASSERT(sizeof(index_html_gz) < 16384,
+             "index.html.gz is >= 16KiB, which may fail due to issues with Zephyr's HTTP/2 server");
 
 static struct http_resource_detail_static index_html_gz_resource_detail = {
 	.common = {
