@@ -62,6 +62,7 @@ config APP_MCUBOOT_UPDATE
 	depends on BOOTLOADER_MCUBOOT
 	depends on APP_SUPPORTS_MCUBOOT_UPDATE
 	depends on !MCUBOOT_BOOTLOADER_MODE_SINGLE_APP
+	depends on REDFISH
 	select APP_HTTP_BULK_UPLOAD
 	select FLASH
 	select IMG_MANAGER
@@ -228,6 +229,11 @@ config HTTP_SERVER_CAPTURE_HEADER_BUFFER_SIZE
 	int
 	default 256 if APP_HTTP_BULK_UPLOAD
 	default 192
+
+config HTTP_SERVER_CAPTURE_HEADER_COUNT
+	int
+	default 4 if APP_HTTP_BULK_UPLOAD
+	default 3
 
 # Multiple streams can concurrently access a resource which requires
 # special handling we don't do.

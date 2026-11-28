@@ -21,6 +21,11 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/base64.h>
+#ifdef CONFIG_APP_MCUBOOT_UPDATE
+#include <bootutil/image.h>
+#include <zephyr/dfu/flash_img.h>
+#include <zephyr/dfu/mcuboot.h>
+#endif
 #include <time.h>
 #include <stdio.h>
 #include <string.h>
@@ -53,9 +58,10 @@ static int validate_auth(struct http_client_ctx *client)
 	const char *prefix = "Basic ";
 
 	for (unsigned int i = 0; i < header_count; i++) {
-		if (!strcmp(headers[i].name, "authorization") ||
-		    !strcmp(headers[i].name, "Authorization")) {
-			auth_header = headers[i].value;
+		const struct http_header *h = &headers[i];
+		if (!strcmp(h->name, "authorization") ||
+		    !strcmp(h->name, "Authorization")) {
+			auth_header = h->value;
 			break;
 		}
 	}
@@ -518,6 +524,18 @@ static struct http_resource_detail_dynamic name##_detail = {				\
 };											\
 ALL_HTTP_RESOURCE_DEFINE(name, url, &name##_detail);
 
+/* Multi request post handler */
+#define REDFISH_HANDLER_RAW(name, url, methods, data, handler)				\
+static struct http_resource_detail_dynamic name##_detail = {				\
+	.common = {									\
+		.type = HTTP_RESOURCE_TYPE_DYNAMIC,					\
+		.bitmask_of_supported_http_methods = methods,				\
+	},										\
+	.cb = handler,									\
+	.user_data = data,								\
+};											\
+ALL_HTTP_RESOURCE_DEFINE(name, url, &name##_detail);
+
 /*** Core Redfish types/containers ***/
 
 /* Collection: Member nested object */
@@ -645,6 +663,9 @@ struct redfish_service_root {
 #if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
 	struct redfish_link certificate_service;
 #endif
+#ifdef CONFIG_APP_MCUBOOT_UPDATE
+	struct redfish_link update_service;
+#endif
 	struct redfish_service_root_links links;
 };
 static const struct json_obj_descr service_root_descr[] = {
@@ -673,6 +694,10 @@ static const struct json_obj_descr service_root_descr[] = {
 #if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
 	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_service_root, "CertificateService",
 				    certificate_service, link_descr),
+#endif
+#ifdef CONFIG_APP_MCUBOOT_UPDATE
+	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_service_root, "UpdateService",
+				    update_service, link_descr),
 #endif
 	JSON_OBJ_DESCR_OBJECT_NAMED(struct redfish_service_root, "Links",
 				    links, service_root_links_descr),
@@ -706,6 +731,11 @@ static int service_root_get_handler(struct http_resource_user_data *user_data)
 #if defined(CONFIG_APP_HTTPS_PUBLIC_KEY)
 		.certificate_service = {
 			.odata_id = "/redfish/v1/CertificateService"
+		},
+#endif
+#ifdef CONFIG_APP_MCUBOOT_UPDATE
+		.update_service = {
+			.odata_id = "/redfish/v1/UpdateService"
 		},
 #endif
 		.links = {
@@ -822,7 +852,11 @@ static const struct json_obj_descr odata_value_descr[] = {
 				  url, JSON_TOK_STRING),
 };
 
+#ifdef CONFIG_APP_MCUBOOT_UPDATE
+#define REDFISH_ODATA_VALUES_MAX 6
+#else
 #define REDFISH_ODATA_VALUES_MAX 5
+#endif
 
 struct redfish_odata {
 	const char *odata_context;
@@ -849,6 +883,9 @@ static int odata_get_handler(struct http_resource_user_data *user_data)
 			{ .name = "Managers", .kind = "Singleton", .url = "/redfish/v1/Managers", },
 			{ .name = "AccountService", .kind = "Singleton", .url = "/redfish/v1/AccountService", },
 			{ .name = "Chassis", .kind = "Singleton", .url = "/redfish/v1/Chassis", },
+#ifdef CONFIG_APP_MCUBOOT_UPDATE
+			{ .name = "UpdateService", .kind = "Singleton", .url = "/redfish/v1/UpdateService", },
+#endif
 		},
 	};
 	int ret;
@@ -2860,6 +2897,259 @@ REDFISH_HANDLER_SIZED(replace_certificate,
 		      NULL, NULL, replace_certificate_post_handler, NULL,
 		      USER_DATA_BUFFER_GET_SIZE, USER_DATA_BUFFER_CERT_POST_SIZE);
 #endif /* CONFIG_APP_HTTPS_PUBLIC_KEY */
+
+#ifdef CONFIG_APP_MCUBOOT_UPDATE
+/*** /redfish/v1/UpdateService ***/
+
+/*
+ * Firmware images are pushed with a POST of the raw image to HttpPushUri.
+ * HttpPushUri is deprecated from UpdateService v1_15_0 in favour of
+ * MultipartHttpPushUri, so the resource claims v1_14_2, the last version
+ * where it is not. Moving to the multipart push later means adding
+ * MultipartHttpPushUri (present since v1_6_0) at another URI, then
+ * raising the version.
+ *
+ * The push only stores the image for MCUboot to install at the next reset,
+ * hence "upload". OpenBMC's /redfish/v1/UpdateService/update also applies
+ * the update and reboots, and answers with a task, so that name is avoided.
+ *
+ * HttpPushUriOptions can describe some properties of a firmware update, such
+ * as Immediate or OnReset, however this property is also used as a stateful
+ * option and lock for clients (part of the reason HttpPushUri is deprecated)
+ * so probably better not to add this property at all.
+ */
+#define UPDATE_SERVICE_PUSH_URI "/redfish/v1/UpdateService/upload"
+
+struct redfish_update_service {
+	const char *odata_id;
+	const char *odata_type;
+	const char *id;
+	const char *name;
+	const char *http_push_uri;
+};
+static const struct json_obj_descr update_service_descr[] = {
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_update_service, "@odata.id", odata_id, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_update_service, "@odata.type", odata_type, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_update_service, "Id", id, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_update_service, "Name", name, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct redfish_update_service, "HttpPushUri", http_push_uri, JSON_TOK_STRING),
+};
+
+/* GET /redfish/v1/UpdateService */
+static int update_service_get_handler(struct http_resource_user_data *user_data)
+{
+	const struct redfish_update_service update_service = {
+		.odata_id = "/redfish/v1/UpdateService",
+		.odata_type = "#UpdateService.v1_14_2.UpdateService",
+		.id = "UpdateService",
+		.name = "Update Service",
+		.http_push_uri = UPDATE_SERVICE_PUSH_URI,
+	};
+	int ret;
+
+	ret = json_obj_encode(update_service_descr, ARRAY_SIZE(update_service_descr),
+			      &update_service, user_data_json_append, user_data);
+	if (ret < 0) {
+		LOG_ERR("Failed to encode update service: %d", ret);
+		return HTTP_500_INTERNAL_SERVER_ERROR;
+	}
+
+	return 0;
+}
+
+REDFISH_HANDLER(update_service, "/redfish/v1/UpdateService",
+		true, /* require auth */
+		update_service_get_handler, NULL, NULL);
+
+/*** UpdateService HttpPushUri ***/
+
+HTTP_SERVER_REGISTER_HEADER_CAPTURE(capture_content_length, "content-length");
+static size_t get_content_length(const struct http_client_ctx *client)
+{
+	size_t header_count = client->header_capture_ctx.count;
+	const struct http_header *headers = client->header_capture_ctx.headers;
+
+	for (unsigned int i = 0; i < header_count; i++) {
+		const struct http_header *h = &headers[i];
+		char *endptr;
+		size_t ret;
+
+		if (strcmp(h->name, "content-length"))
+			continue;
+		if (h->value[0] == '\0')
+			continue;
+
+		ret = strtoul(h->value, &endptr, 10);
+		if (*endptr == '\0')
+			return ret;
+	}
+
+	return 0;
+}
+
+/* POST UPDATE_SERVICE_PUSH_URI */
+static int update_service_upload_post_handler(struct http_client_ctx *client,
+			   enum http_transaction_status status,
+			   const struct http_request_ctx *request_ctx,
+			   struct http_response_ctx *response_ctx,
+			   void *user_data)
+{
+	static struct flash_img_context flash_ctx;
+	static size_t content_length;
+	static size_t header_read;
+	static struct image_header hdr;
+	static bool upload_started;
+	static bool upload_failed;
+	static bool upload_header_valid;
+	int ret;
+
+	if (status == HTTP_SERVER_TRANSACTION_ABORTED ||
+	    status == HTTP_SERVER_TRANSACTION_COMPLETE) {
+		if (upload_started) {
+			if (status == HTTP_SERVER_TRANSACTION_ABORTED)
+				LOG_ERR("Firmware upload error: aborted");
+			upload_started = false;
+		}
+		upload_failed = false;
+		return 0;
+	}
+
+	/* Discard remaining stream */
+	if (upload_failed)
+		goto failed;
+
+	if (!upload_started) {
+		if (validate_and_set_headers(client, response_ctx, BIT(HTTP_POST)) < 0) {
+			LOG_ERR("Unsupported HTTP method");
+			upload_failed = true;
+			return 0;
+		}
+		if (validate_auth(client) < 0) {
+			LOG_ERR("Failed to authenticate");
+			set_unauth_response(client, response_ctx);
+			upload_failed = true;
+			return 0;
+		}
+
+		content_length = get_content_length(client);
+		if (content_length == 0) {
+			LOG_ERR("Firmware upload error: no content-length provided");
+			response_ctx->status = HTTP_411_LENGTH_REQUIRED;
+			goto failed;
+		}
+		LOG_INF("Firmware upload of %u bytes starting", content_length);
+		upload_started = true;
+		upload_header_valid = false;
+		header_read = 0;
+	}
+
+	/*
+	 * Accumulate requests until the image_header is filled, then write
+	 * that to flash plus any residual data from the request. Subsequent
+	 * requests go directly to flash.
+	 */
+	if (!upload_header_valid) {
+		size_t to_read = request_ctx->data_len;
+		if (to_read > sizeof(hdr) - header_read)
+			to_read = sizeof(hdr) - header_read;
+
+		memcpy((uint8_t *)(((unsigned long)&hdr) + header_read), request_ctx->data, to_read);
+
+		header_read += to_read;
+
+		if (header_read < sizeof(hdr)) {
+			if (status == HTTP_SERVER_REQUEST_DATA_FINAL) {
+				LOG_ERR("Firmware upload image header is invalid, failing");
+				response_ctx->status = HTTP_400_BAD_REQUEST;
+				goto failed;
+			}
+			return 0;
+		}
+
+		if (hdr.ih_magic != IMAGE_MAGIC ||
+		    hdr.ih_hdr_size < sizeof(hdr) ||
+		    hdr.ih_img_size == 0 ||
+		    hdr.ih_hdr_size > content_length ||
+		    hdr.ih_img_size > content_length - hdr.ih_hdr_size) {
+			LOG_ERR("Firmware upload image header is invalid, failing");
+			response_ctx->status = HTTP_400_BAD_REQUEST;
+			goto failed;
+		}
+
+		LOG_INF("Firmware upload found valid image header");
+		upload_header_valid = true;
+
+		ret = flash_img_init(&flash_ctx);
+		if (ret) {
+			LOG_ERR("Firmware upload error: flash_img_init failed (err=%d)", ret);
+			response_ctx->status = HTTP_500_INTERNAL_SERVER_ERROR;
+			goto failed;
+		}
+		ret = flash_img_buffered_write(&flash_ctx, (uint8_t *)&hdr, sizeof(hdr), false);
+		if (ret) {
+			LOG_ERR("Firmware upload error: flash_img_buffered_write failed (err=%d)", ret);
+			response_ctx->status = HTTP_500_INTERNAL_SERVER_ERROR;
+			goto failed;
+		}
+		/* Write any data remaining after the header */
+		ret = flash_img_buffered_write(&flash_ctx, request_ctx->data + to_read, request_ctx->data_len - to_read, false);
+		if (ret) {
+			LOG_ERR("Firmware upload error: flash_img_buffered_write failed (err=%d)", ret);
+			response_ctx->status = HTTP_500_INTERNAL_SERVER_ERROR;
+			goto failed;
+		}
+	} else {
+		ret = flash_img_buffered_write(&flash_ctx, request_ctx->data, request_ctx->data_len, false);
+		if (ret) {
+			LOG_ERR("Firmware upload error: flash_img_buffered_write failed (err=%d)", ret);
+			response_ctx->status = HTTP_500_INTERNAL_SERVER_ERROR;
+			goto failed;
+		}
+	}
+
+	if (status == HTTP_SERVER_REQUEST_DATA_FINAL) {
+		size_t received;
+
+		ret = flash_img_buffered_write(&flash_ctx, NULL, 0, true);
+		if (ret) {
+			LOG_ERR("Firmware upload error: flash_img_buffered_write flush failed (err=%d)", ret);
+			response_ctx->status = HTTP_500_INTERNAL_SERVER_ERROR;
+			goto failed;
+		}
+
+		received = flash_img_bytes_written(&flash_ctx);
+		if (received != content_length) {
+			LOG_ERR("Firmware upload received %u bytes, aborting", received);
+			response_ctx->status = HTTP_400_BAD_REQUEST;
+			goto failed;
+		}
+
+		LOG_INF("Firmware upload done %u bytes, requesting boot upgrade", received);
+		ret = boot_request_upgrade(BOOT_UPGRADE_PERMANENT);
+		if (ret) {
+			LOG_ERR("Firmware upload error: boot_request_upgrade failed (err=%d)", ret);
+			response_ctx->status = HTTP_500_INTERNAL_SERVER_ERROR;
+			goto failed;
+		}
+
+		response_ctx->status = HTTP_204_NO_CONTENT; /* 204 is success */
+		response_ctx->final_chunk = true;
+		upload_started = false;
+	}
+
+	return 0;
+
+failed:
+	upload_failed = true;
+	response_ctx->final_chunk = true;
+	return 0;
+}
+
+REDFISH_HANDLER_RAW(update_service_upload, UPDATE_SERVICE_PUSH_URI,
+		BIT(HTTP_POST), NULL,
+		update_service_upload_post_handler);
+
+#endif /* CONFIG_APP_MCUBOOT_UPDATE */
 
 /*** /redfish/v1/$metadata ***/
 static const uint8_t redfish_metadata_xml_gz[] = {
