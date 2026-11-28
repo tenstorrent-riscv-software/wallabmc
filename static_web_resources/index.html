@@ -17,6 +17,7 @@
 			--primary-hover: #1d4ed8;
 			--danger: #dc2626;
 			--danger-hover: #b91c1c;
+			--ok: #16a34a;
 			--bg: #f3f4f6;
 			--card: #ffffff;
 			--input-bg: #ffffff;
@@ -31,6 +32,7 @@
 
 		body.dark {
 			color-scheme: dark;
+			--ok: #4ade80;
 			--bg: #111827;
 			--card: #1f2937;
 			--input-bg: #374151;
@@ -52,12 +54,28 @@
 		}
 
 		.hidden { display: none !important; }
-		.container { max-width: 1000px; margin: 0 auto; padding-top: 10px; }
+		.mt { margin-top: 16px; }
+		.pad { padding: 12px; margin: 0; }
+		.container { max-width: 1040px; margin: 0 auto; padding-top: 10px; }
 
 		#loading-bar {
 			position: fixed; top: 0; left: 0; z-index: 9999;
 			height: 3px; width: 0; background: var(--primary); transition: width 0.3s;
 		}
+
+		#toasts {
+			position: fixed; bottom: 20px; right: 20px; z-index: 9999;
+			display: flex; flex-direction: column; gap: 8px; max-width: 360px;
+			pointer-events: none;
+		}
+		.toast {
+			padding: 10px 14px; border-radius: var(--radius);
+			background: var(--card); color: var(--text);
+			border: 1px solid var(--border); border-left: 4px solid var(--primary);
+			box-shadow: 0 4px 12px rgba(0,0,0,0.18); font-size: 0.875rem;
+		}
+		.toast.err { border-left-color: var(--danger); }
+		.toast.ok { border-left-color: var(--ok); }
 
 		.card {
 			background: var(--card);
@@ -72,10 +90,11 @@
 		.header, .card-head {
 			display: flex; justify-content: space-between; align-items: center;
 			border-bottom: 1px solid var(--border);
-			padding-bottom: 16px; margin-bottom: 24px;
+			padding-bottom: 16px; margin-bottom: 24px; gap: 12px; flex-wrap: wrap;
 		}
 		.brand { display: flex; align-items: center; gap: 14px; }
 		.brand img { height: 44px; }
+		.hdr-actions { display: flex; align-items: center; gap: 14px; }
 		h1 { font-size: 1.4rem; margin: 0; }
 		h2 { font-size: 1.2rem; margin: 0 0 18px; font-weight: 600; }
 		.card-head h2 { margin: 0; }
@@ -84,10 +103,11 @@
 			text-transform: uppercase; letter-spacing: 0.05em;
 			margin: 24px 0 14px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
 		}
+		h3:first-of-type { margin-top: 0; }
 
 		.layout { display: flex; gap: 24px; align-items: flex-start; }
 		.sidebar {
-			width: 180px; flex-shrink: 0; background: var(--card);
+			width: 185px; flex-shrink: 0; background: var(--card);
 			border: 1px solid var(--border); border-radius: var(--radius);
 			overflow: hidden; position: sticky; top: 20px;
 		}
@@ -104,11 +124,15 @@
 		/* Grids & Fields */
 		.grid {
 			display: grid;
-			grid-template-columns: repeat(auto-fill, minmax(var(--min, 200px), 1fr));
+			grid-template-columns: repeat(auto-fill, minmax(var(--min, 190px), 1fr));
 			gap: 16px; align-items: end;
 		}
-		.grid-lg { --min: 260px; }
+		.grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+		.grid-lg { --min: 250px; }
+		.grid + .grid { margin-top: 16px; }
+		.sub-row { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
 		.actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+		form .actions { margin-top: 24px; }
 		.actions > button { flex: 1 1 180px; max-width: 240px; }
 
 		.field { display: flex; flex-direction: column; gap: 5px; }
@@ -119,6 +143,7 @@
 		.mono-sm { font-family: monospace; font-size: 0.85rem; color: var(--muted); }
 		small { color: var(--muted); font-size: 0.8rem; }
 		.err { color: var(--danger); font-size: 0.85rem; font-weight: 500; }
+		.ok { color: var(--ok); }
 
 		/* Controls */
 		input, select, button, textarea {
@@ -152,9 +177,9 @@
 		button.secondary:hover { background: var(--bg); }
 
 		/* Toggle Switch */
-		.switch { display: flex; align-items: center; gap: 10px; height: var(--h); cursor: pointer; }
+		.switch { display: inline-flex; align-items: center; gap: 8px; height: var(--h); cursor: pointer; font-size: 0.875rem; }
 		.switch input {
-			appearance: none; width: 40px; height: 22px; background: var(--border);
+			appearance: none; width: 38px; height: 22px; background: var(--border);
 			border-radius: 11px; position: relative; cursor: pointer; margin: 0;
 		}
 		.switch input::after {
@@ -162,7 +187,7 @@
 			background: #fff; top: 2px; left: 2px; transition: left 0.2s;
 		}
 		.switch input:checked { background: var(--primary); }
-		.switch input:checked::after { left: 20px; }
+		.switch input:checked::after { left: 18px; }
 
 		/* Badges & Login */
 		.badge {
@@ -172,11 +197,17 @@
 		}
 		.badge.On { background: #dcfce7; color: #166534; }
 		.badge.Off { background: #fee2e2; color: #991b1b; }
+		.badge.PoweringOn, .badge.PoweringOff { background: #fef3c7; color: #92400e; }
+		body.dark .badge.On { background: #14532d; color: #bbf7d0; }
+		body.dark .badge.Off { background: #7f1d1d; color: #fecaca; }
+		body.dark .badge.PoweringOn, body.dark .badge.PoweringOff { background: #78350f; color: #fde68a; }
 
+		.login-card { text-align: center; }
+		.login-logo { max-width: 200px; margin: 16px 0; }
 		.login-form { display: flex; flex-direction: column; gap: 14px; max-width: 340px; margin: 24px auto; }
 		.login-form button { width: 100%; }
 
-		/* Dropzone */
+		/* Dropzone & Charts */
 		.fw-row { display: flex; gap: 12px; flex-wrap: wrap; }
 		.dropzone {
 			flex: 1; min-width: 240px; display: flex; align-items: center; gap: 12px;
@@ -185,33 +216,39 @@
 		}
 		.dropzone:hover, .dropzone.dragover { border-color: var(--primary); }
 		.dropzone.has-file { border-style: solid; border-color: var(--primary); }
+		.fw-name { font-weight: 500; }
+		.fw-status { margin-top: 10px; font-size: 0.875rem; }
 		.fw-clear {
 			background: none; color: var(--muted); padding: 0; width: 24px; height: 24px;
 			border-radius: 50%; margin-left: auto;
 		}
 		.fw-clear:hover { background: var(--border); color: var(--text); }
-		.ok { color: #16a34a; }
-		body.dark .ok { color: #4ade80; }
+		.chart-wrap { max-width: 800px; }
 
 		/* Shared Terminal */
 		.term-win {
 			background: var(--term-bg); border: 1px solid var(--border); border-radius: var(--radius);
 			display: flex; flex-direction: column; height: 550px; min-height: 220px; min-width: 320px;
-			resize: both; overflow: hidden;
+			max-width: 100%; resize: both; overflow: hidden;
 		}
 		.term-hdr {
-			display: flex; justify-content: space-between; align-items: center;
-			padding: 10px 14px; background: var(--term-hdr); border-bottom: 1px solid var(--border);
-			font-family: monospace; font-size: 0.88rem;
+			display: flex; justify-content: space-between; align-items: center; gap: 8px;
+			padding: 8px 14px; background: var(--term-hdr); border-bottom: 1px solid var(--border);
+			font-family: monospace; font-size: 0.88rem; flex-wrap: wrap;
 		}
-		.term-ctrls { display: flex; gap: 6px; }
-		.term-ctrls select, .term-ctrls input { height: 26px; width: auto; font-size: 0.78rem; padding: 0 6px; }
+		.term-ctrls { display: flex; align-items: center; gap: 6px; }
+		.term-ctrls select, .term-ctrls input, .term-ctrls button {
+			height: 28px; width: auto; font-size: 0.78rem; padding: 0 8px;
+		}
 		.term-ctrls input { width: 52px; }
 		.term-body { flex: 1; min-height: 0; padding: 4px; }
 
-		/* Mobile Sidebar */
+		/* Responsive & Mobile Sidebar */
 		.menu-btn { display: none; padding: 0 12px; font-size: 1.2rem; }
 		.overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 99; }
+		@media (max-width: 860px) {
+			.grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+		}
 		@media (max-width: 640px) {
 			body { padding: 10px; }
 			.menu-btn { display: inline-flex; align-items: center; }
@@ -223,16 +260,22 @@
 			.sidebar.open { transform: translateX(0); }
 			.overlay.open { display: block; }
 		}
+		@media (max-width: 480px) {
+			.grid-4 { grid-template-columns: 1fr; }
+		}
 	</style>
 </head>
 <body>
 	<div id="loading-bar"></div>
+	<div id="toasts" aria-live="polite"></div>
+
 	<div class="container">
 		<!-- Login -->
-		<div id="login-section" class="card" style="text-align:center">
-			<img src="logo.png" alt="WallaBMC" style="max-width:200px; margin:16px 0">
+		<div id="login-section" class="card login-card">
+			<img src="logo.png" alt="WallaBMC" class="login-logo">
 			<form id="login-form" class="login-form">
-				<input type="password" id="password" placeholder="Password" autofocus>
+				<input type="text" name="username" value="admin" autocomplete="username" class="hidden">
+				<input type="password" id="password" placeholder="Password" autocomplete="current-password" autofocus>
 				<button type="submit">Login</button>
 			</form>
 			<p id="login-error" class="err hidden"></p>
@@ -245,129 +288,71 @@
 					<img src="logo.png" alt="WallaBMC">
 					<h1>WallaBMC Admin Dashboard</h1>
 				</div>
-				<div style="display:flex; gap:10px">
-					<button class="menu-btn secondary" id="menu-btn">&#9776;</button>
-					<button class="secondary" id="logout-btn">Logout</button>
+				<div class="hdr-actions">
+					<label class="switch">
+						<input type="checkbox" id="cfg-dark">
+						<span>Dark mode</span>
+					</label>
+					<button type="button" class="menu-btn secondary" id="menu-btn">&#9776;</button>
+					<button type="button" class="secondary" id="logout-btn">Logout</button>
 				</div>
 			</header>
 
 			<div class="overlay" id="overlay"></div>
 			<div class="layout">
 				<nav class="sidebar" id="sidebar">
-					<button class="nav-item active" data-sec="overview">System Overview</button>
-					<button class="nav-item" data-sec="power">Host Power Control</button>
-					<button class="nav-item" data-sec="host-console">Host Console</button>
-					<button class="nav-item" data-sec="bmc">BMC Settings</button>
-					<button class="nav-item" data-sec="bmc-shell">BMC Shell</button>
-					<button class="nav-item hidden" id="nav-sensors" data-sec="sensors">Sensors</button>
+					<button type="button" class="nav-item active" data-sec="general">General</button>
+					<button type="button" class="nav-item" data-sec="network">Network</button>
+					<button type="button" class="nav-item hidden" id="nav-https" data-sec="https">HTTPS Certificate</button>
+					<button type="button" class="nav-item hidden" id="nav-firmware" data-sec="firmware">Firmware Update</button>
+					<button type="button" class="nav-item" data-sec="host-control">Host Control</button>
+					<button type="button" class="nav-item hidden" id="nav-sensors" data-sec="sensors">Sensors</button>
+					<button type="button" class="nav-item" data-sec="password">Change Password</button>
+					<button type="button" class="nav-item" data-sec="host-console">Host Console</button>
+					<button type="button" class="nav-item" data-sec="bmc-console">BMC Console</button>
 				</nav>
 
 				<main class="content">
-					<!-- Overview -->
-					<section id="sec-overview" class="card">
-						<div class="card-head">
-							<h2>System Overview</h2>
-							<span class="mono-sm">UUID: <span id="sys-uuid">Loading...</span></span>
-						</div>
-						<div class="grid grid-lg" id="sys-grid"></div>
-					</section>
-
-					<!-- Power Control -->
-					<section id="sec-power" class="card hidden">
-						<h2>Host Power Control</h2>
-						<p><span class="label">Current State:</span> <span id="power-badge" class="badge">Unknown</span></p>
-						<div class="actions" id="power-actions">
-							<button data-pwr="On">Power On</button>
-							<button class="danger" data-pwr="ForceOff">Force Off</button>
-							<button class="danger" data-pwr="ForceRestart">Force Restart</button>
-						</div>
-					</section>
-
-					<!-- Shared Terminal Section (Host Console & BMC Shell) -->
-					<section id="sec-terminal" class="hidden">
-						<div class="term-win" id="term-win">
-							<div class="term-hdr">
-								<span id="term-title">Console</span>
-								<div class="term-ctrls">
-									<select id="term-font"></select>
-									<input type="number" id="term-size" min="8" max="32">
-								</div>
-							</div>
-							<div id="term-container" class="term-body"></div>
-						</div>
-					</section>
-
-					<!-- BMC Settings -->
-					<section id="sec-bmc" class="hidden">
+					<!-- General (Host System + BMC Overview, Time & Restart) -->
+					<section id="sec-general">
 						<div class="card">
 							<div class="card-head">
-								<h2>BMC Settings</h2>
+								<h2>Host System</h2>
+								<span class="mono-sm">UUID: <span id="sys-uuid">Loading...</span></span>
+							</div>
+							<div class="grid grid-lg" id="sys-grid"></div>
+						</div>
+
+						<div class="card">
+							<div class="card-head">
+								<h2>BMC</h2>
 								<span class="mono-sm">UUID: <span id="bmc-uuid">Loading...</span></span>
 							</div>
 							<div class="grid" id="bmc-info-grid"></div>
-
-							<div id="fw-section" class="hidden">
-								<h3>Firmware</h3>
-								<div class="fw-row">
-									<input type="file" id="fw-file" accept=".signed.bin" class="hidden">
-									<div class="dropzone" id="fw-drop" tabindex="0" role="button" aria-label="Select BMC firmware file">
-										<div>
-											<div id="fw-name" style="font-weight:500">Choose a firmware file or drag it here</div>
-											<small id="fw-sub">Accepts .signed.bin</small>
-										</div>
-										<button type="button" class="fw-clear hidden" id="fw-clear" title="Clear">&times;</button>
-									</div>
-									<button class="danger" id="fw-btn" disabled>Upload and update</button>
-								</div>
-								<div id="fw-status" style="margin-top:8px; font-size:0.875rem" role="status"></div>
-							</div>
-
-							<h3>Reset</h3>
-							<div class="actions"><button class="danger" id="reset-bmc-btn">Reset BMC</button></div>
-
-							<h3>Appearance</h3>
-							<label class="switch">
-								<input type="checkbox" id="cfg-dark">
-								<span>Dark mode</span>
-							</label>
-
-							<h3>Security</h3>
-							<div class="grid">
+							<div class="grid sub-row">
 								<div class="field">
-									<label for="cfg-password">New Password</label>
-									<input type="password" id="cfg-password" placeholder="Unchanged" title="Max 15 chars">
-									<small id="pwd-err" class="err hidden">Password must be 15 characters or fewer.</small>
+									<span class="label">BMC Current Time</span>
+									<span class="val" id="bmc-time">Loading...</span>
 								</div>
-							</div>
-
-							<h3>Host Power Policy</h3>
-							<div class="grid">
 								<div class="field">
-									<label for="cfg-power-policy">Restore Policy</label>
-									<select id="cfg-power-policy">
-										<option value="AlwaysOff">Always Off</option>
-										<option value="AlwaysOn">Always On</option>
-									</select>
+									<button type="button" id="sync-time-btn">Sync to browser</button>
 								</div>
 							</div>
-
-							<h3>Time</h3>
-							<div class="grid">
-								<div class="field"><span class="label">Current Time</span><span class="val" id="bmc-time">Loading...</span></div>
-								<div class="field"><button id="sync-time-btn">Sync to browser</button></div>
-								<div class="field">
-									<label for="cfg-ntp">NTP</label>
-									<select id="cfg-ntp"><option value="true">Enabled</option><option value="false">Disabled</option></select>
-								</div>
-								<div class="field"><label for="cfg-ntp-server">NTP Server</label><input type="text" id="cfg-ntp-server"></div>
+							<div class="actions">
+								<button type="button" class="danger" id="restart-bmc-btn">Restart BMC</button>
 							</div>
+						</div>
+					</section>
 
-							<h3>Network</h3>
-							<div class="grid" style="margin-bottom:14px">
+					<!-- Network (4-Column Hostname, Active IPv4, DHCP/Static & NTP) -->
+					<section id="sec-network" class="card hidden">
+						<h2>Network</h2>
+						<form id="network-form">
+							<div class="grid grid-4">
 								<div class="field"><label for="cfg-hostname">Hostname</label><input type="text" id="cfg-hostname" placeholder="New Hostname"></div>
 							</div>
-							<div class="grid" id="net-info-grid" style="margin-bottom:14px"></div>
-							<div class="grid">
+							<div class="grid grid-4" id="net-info-grid"></div>
+							<div class="grid grid-4">
 								<div class="field">
 									<label for="cfg-dhcp">IP Assignment</label>
 									<select id="cfg-dhcp"><option value="true">Prefer DHCP</option><option value="false">Static</option></select>
@@ -376,35 +361,88 @@
 								<div class="field"><label for="cfg-static-netmask">Subnet Mask</label><input type="text" id="cfg-static-netmask" placeholder="x.x.x.x"></div>
 								<div class="field"><label for="cfg-static-gateway">Gateway</label><input type="text" id="cfg-static-gateway" placeholder="x.x.x.x"></div>
 							</div>
+							<div class="grid grid-4">
+								<div class="field">
+									<label for="cfg-ntp">NTP</label>
+									<select id="cfg-ntp"><option value="true">Enabled</option><option value="false">Disabled</option></select>
+								</div>
+								<div class="field"><label for="cfg-ntp-server">NTP Server</label><input type="text" id="cfg-ntp-server"></div>
+							</div>
 
 							<div class="actions">
-								<button class="danger" id="save-cfg-btn">Apply Changes</button>
-								<button id="discard-cfg-btn">Discard Changes</button>
+								<button type="submit" class="danger">Apply Changes</button>
+								<button type="button" class="secondary" id="discard-cfg-btn">Discard Changes</button>
 							</div>
+						</form>
+					</section>
+
+					<!-- HTTPS Certificate -->
+					<section id="sec-https" class="card hidden">
+						<h2>HTTPS Certificate</h2>
+						<div class="grid grid-4" id="cert-info-grid"></div>
+						<div class="field mt">
+							<span class="label">SHA-256 Fingerprint</span>
+							<span class="val" id="cert-fp">Loading...</span>
+							<small>Before trusting the certificate, check this matches <code>bmc cert</code> on the BMC serial console.</small>
 						</div>
 
-						<!-- HTTPS Certificates -->
-						<div class="card hidden" id="cert-card">
-							<h2>HTTPS Certificate</h2>
-							<div class="grid" id="cert-info-grid"></div>
-							<div class="field" style="margin-top:14px">
-								<span class="label">SHA-256 Fingerprint</span>
-								<span class="val" id="cert-fp">Loading...</span>
-								<small>Before trusting the certificate, check this matches <code>bmc cert</code> on the BMC serial console.</small>
-							</div>
+						<h3>Certificate Signing Request</h3>
+						<div class="grid grid-4" id="csr-inputs"></div>
+						<div class="actions">
+							<button type="button" id="gen-csr-btn">Generate CSR</button>
+							<button type="button" class="secondary hidden" id="copy-csr-btn">Copy CSR</button>
+						</div>
+						<textarea id="cert-csr" class="hidden" readonly></textarea>
 
-							<h3>Certificate Signing Request</h3>
-							<div class="grid" id="csr-inputs"></div>
-							<div class="actions">
-								<button id="gen-csr-btn">Generate CSR</button>
-								<button class="secondary hidden" id="copy-csr-btn">Copy CSR</button>
-							</div>
-							<textarea id="cert-csr" class="hidden" readonly></textarea>
+						<h3>Install Signed Certificate</h3>
+						<small>CA must sign with ECDSA (SHA-256/384); all chain certs must use P-256 or P-384 keys.</small>
+						<textarea id="cert-install" placeholder="Paste PEM certificate signed by CA, followed by intermediates"></textarea>
+						<div class="actions"><button type="button" class="danger" id="install-cert-btn">Install Certificate</button></div>
+					</section>
 
-							<h3>Install Signed Certificate</h3>
-							<small>CA must sign with ECDSA (SHA-256/384); all chain certs must use P-256 or P-384 keys.</small>
-							<textarea id="cert-install" placeholder="Paste PEM certificate signed by CA, followed by intermediates"></textarea>
-							<div class="actions"><button class="danger" id="install-cert-btn">Install Certificate</button></div>
+					<!-- Firmware Update -->
+					<section id="sec-firmware" class="card hidden">
+						<h2>Firmware Update</h2>
+						<div class="fw-row">
+							<input type="file" id="fw-file" accept=".signed.bin" class="hidden">
+							<div class="dropzone" id="fw-drop" tabindex="0" role="button" aria-label="Select BMC firmware file">
+								<div>
+									<div id="fw-name" class="fw-name">Choose a firmware file or drag it here</div>
+									<small id="fw-sub">Accepts .signed.bin</small>
+								</div>
+								<button type="button" class="fw-clear hidden" id="fw-clear" title="Clear">&times;</button>
+							</div>
+							<button type="button" class="danger" id="fw-btn" disabled>Upload and update</button>
+						</div>
+						<div id="fw-status" class="fw-status" role="status"></div>
+						<div id="fw-restart-row" class="actions hidden">
+							<button type="button" class="danger" id="fw-restart-btn">Restart BMC Now</button>
+						</div>
+					</section>
+
+					<!-- Host Control (Power Actions + Power Policy) -->
+					<section id="sec-host-control" class="card hidden">
+						<h2>Host Control</h2>
+						<h3>Power Control</h3>
+						<p><span class="label">Current State:</span> <span id="power-badge" class="badge">Unknown</span></p>
+						<div class="actions" id="power-actions">
+							<button type="button" data-pwr="On">Power On</button>
+							<button type="button" class="danger" data-pwr="ForceOff">Force Off</button>
+							<button type="button" class="danger" data-pwr="ForceRestart">Force Restart</button>
+						</div>
+
+						<h3>Power Policy</h3>
+						<div class="grid">
+							<div class="field">
+								<label for="cfg-power-policy">Restore Policy</label>
+								<select id="cfg-power-policy">
+									<option value="AlwaysOff">Always Off</option>
+									<option value="AlwaysOn">Always On</option>
+								</select>
+							</div>
+							<div class="field">
+								<button type="button" id="save-policy-btn">Apply Policy</button>
+							</div>
 						</div>
 					</section>
 
@@ -412,8 +450,44 @@
 					<section id="sec-sensors" class="card hidden">
 						<h2>Sensors</h2>
 						<h3>BMC SoC Temperature</h3>
-						<div style="max-width:800px"><canvas id="tempChart"></canvas></div>
+						<div class="chart-wrap"><canvas id="tempChart"></canvas></div>
 						<p id="sensor-err" class="err"></p>
+					</section>
+
+					<!-- Change Password -->
+					<section id="sec-password" class="card hidden">
+						<h2>Change Password</h2>
+						<form id="password-form">
+							<input type="text" name="username" value="admin" autocomplete="username" class="hidden">
+							<div class="grid">
+								<div class="field">
+									<label for="cfg-password">New Password</label>
+									<input type="password" id="cfg-password" maxlength="15" pattern="[ -~]+" title="1–15 printable ASCII characters" placeholder="Max 15 characters" autocomplete="new-password" required>
+								</div>
+								<div class="field">
+									<label for="cfg-password-confirm">Confirm Password</label>
+									<input type="password" id="cfg-password-confirm" maxlength="15" placeholder="Repeat password" autocomplete="new-password" required>
+								</div>
+							</div>
+							<div class="actions">
+								<button type="submit" class="danger">Change Password</button>
+							</div>
+						</form>
+					</section>
+
+					<!-- Shared Terminal (Host Console & BMC Console) -->
+					<section id="sec-terminal" class="hidden">
+						<div class="term-win" id="term-win">
+							<div class="term-hdr">
+								<span id="term-title">Console</span>
+								<div class="term-ctrls">
+									<select id="term-font" aria-label="Font family"></select>
+									<input type="number" id="term-size" min="8" max="32" aria-label="Font size">
+									<button type="button" class="secondary" id="term-reconnect">Reconnect</button>
+								</div>
+							</div>
+							<div id="term-container" class="term-body"></div>
+						</div>
 					</section>
 				</main>
 			</div>
@@ -421,10 +495,39 @@
 	</div>
 
 	<script>
+		'use strict';
+
 		const $ = (id) => document.getElementById(id);
 		const show = (id, vis = true) => $(id).classList.toggle('hidden', !vis);
-		const setText = (id, val) => { $(id).textContent = val || 'N/A'; };
+		const setText = (id, val) => { $(id).textContent = val ?? 'N/A'; };
 		const setLoading = (on) => { $('loading-bar').style.width = on ? '100%' : '0'; };
+		const toB64 = (s) => btoa(Array.from(new TextEncoder().encode(s), b => String.fromCharCode(b)).join(''));
+		const fmtDn = (dn) => dn ? [['CN', dn.CommonName], ['O', dn.Organization], ['OU', dn.OrganizationalUnit], ['L', dn.City], ['ST', dn.State], ['C', dn.Country]]
+			.filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(', ') : '';
+
+		function toast(msg, type = '') {
+			const el = document.createElement('div');
+			el.className = `toast ${type}`;
+			el.textContent = msg;
+			$('toasts').appendChild(el);
+			setTimeout(() => el.remove(), 4500);
+		}
+
+		function bindAction(id, event, fn) {
+			$(id).addEventListener(event, async (e) => {
+				if (event === 'submit') e.preventDefault();
+				const btn = e.submitter || e.target.closest('button');
+				if (!btn || btn.disabled) return;
+				btn.disabled = true;
+				try {
+					await fn(e, btn);
+				} catch (err) {
+					if (!(err instanceof PollStopped)) toast(err.message, 'err');
+				} finally {
+					btn.disabled = false;
+				}
+			});
+		}
 
 		// --- Declarative Field Definitions ---
 		const SYS_FIELDS = [
@@ -442,23 +545,32 @@
 			['bmc-zephyr', 'Zephyr Version', d => d.Oem?.WallaBMC?.ZephyrVersion],
 		];
 		const NET_FIELDS = [
-			['net-type', 'Address Type', d => d?.AddressOrigin],
-			['net-ip', 'IP Address', d => d?.Address],
-			['net-mask', 'Subnet Mask', d => d?.SubnetMask],
-			['net-gw', 'Gateway', d => d?.Gateway],
+			['net-type', 'Active Address Type', d => d?.AddressOrigin],
+			['net-ip', 'Active IP Address', d => d?.Address],
+			['net-mask', 'Active Subnet Mask', d => d?.SubnetMask],
+			['net-gw', 'Active Gateway', d => d?.Gateway],
 		];
 		const CERT_FIELDS = [
-			['cert-sub', 'Subject'], ['cert-iss', 'Issuer'], ['cert-type', 'Type'], ['cert-exp', 'Valid Until']
+			['cert-sub', 'Subject', c => fmtDn(c.Subject)],
+			['cert-iss', 'Issuer', c => fmtDn(c.Issuer)],
+			['cert-type', 'Type', c => fmtDn(c.Subject) === fmtDn(c.Issuer) ? 'Self-signed' : 'CA-signed'],
+			['cert-exp', 'Valid Until', c => {
+				if (!c.ValidNotAfter) return null;
+				if (c.ValidNotAfter.startsWith('9999')) return 'No expiry';
+				const t = Date.parse(c.ValidNotAfter);
+				return Number.isNaN(t) ? null : new Date(t).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+			}],
 		];
 		const CSR_SCHEMA = [
-			['CommonName', 'Common Name', 'bmc.example.com'],
-			['AlternativeNames', 'Alternative Names', 'Current names'],
-			['Organization', 'Organization', ''],
-			['OrganizationalUnit', 'Organizational Unit', ''],
-			['City', 'City', ''],
-			['State', 'State', ''],
-			['Country', 'Country', '2-letter code', 2],
+			['CommonName', 'Common Name', 'bmc.example.com', ''],
+			['AlternativeNames', 'Alternative Names', 'Current names', 'DNS names (no wildcards) or IPv4 addresses, comma-separated'],
+			['Organization', 'Organization', '', ''],
+			['OrganizationalUnit', 'Organizational Unit', '', ''],
+			['City', 'City', '', ''],
+			['State', 'State', '', ''],
+			['Country', 'Country', '2-letter code', '', 2],
 		];
+		const SECTIONS = ['general', 'network', 'https', 'firmware', 'host-control', 'sensors', 'password', 'terminal'];
 
 		function buildReadGrid(containerId, defs) {
 			$(containerId).innerHTML = defs.map(([id, label]) =>
@@ -470,17 +582,23 @@
 		buildReadGrid('net-info-grid', NET_FIELDS);
 		buildReadGrid('cert-info-grid', CERT_FIELDS);
 
-		$('csr-inputs').innerHTML = CSR_SCHEMA.map(([key, label, ph, max]) => `
+		$('csr-inputs').innerHTML = CSR_SCHEMA.map(([key, label, ph, title, max]) => `
 			<div class="field">
 				<label for="csr-${key}">${label}</label>
-				<input type="text" id="csr-${key}" placeholder="${ph}" ${max ? `maxlength="${max}"` : ''}>
+				<input type="text" id="csr-${key}" placeholder="${ph}" ${title ? `title="${title}"` : ''} ${max ? `maxlength="${max}"` : ''}>
 			</div>`).join('');
 
-		const updateReadGrid = (defs, data) => defs.forEach(([id, , fn]) => setText(id, fn(data)));
+		const updateReadGrid = (defs, data) => defs.forEach(([id, , fn]) => setText(id, fn(data) || 'N/A'));
 
-		// --- State ---
+		function setPowerBadge(stateStr) {
+			const pwr = stateStr || 'Unknown';
+			setText('power-badge', pwr);
+			$('power-badge').className = `badge ${pwr.replace(/\s+/g, '')}`;
+		}
+
+		// --- Application State ---
 		const state = {
-			auth: null, wsAuth: null,
+			auth: null, wsAuth: null, activeSec: 'general',
 			paths: {}, data: {},
 			chart: null, term: null,
 			timers: { sys: null, sensor: null },
@@ -500,8 +618,12 @@
 			return task;
 		}
 
+		function isLoggedIn() {
+			return Boolean(state.auth && !$('dashboard-section').classList.contains('hidden'));
+		}
+
 		function isPollingActive() {
-			return Boolean(state.auth && !document.hidden && !$('dashboard-section').classList.contains('hidden'));
+			return isLoggedIn() && !document.hidden;
 		}
 
 		function api(path, method = 'GET', body = null, isPoll = false) {
@@ -511,16 +633,16 @@
 				try {
 					const headers = { 'authorization': state.auth, 'x-auth-code': 'webui', 'accept': 'application/json' };
 					const opts = { method, headers };
-					if (body instanceof File) {
-						headers['content-type'] = 'application/octet-stream';
-						opts.body = body;
-					} else if (body) {
+					if (body) {
 						headers['content-type'] = 'application/json';
 						opts.body = JSON.stringify(body);
 					}
 					const res = await fetch(path, opts);
 					if (!res.ok) {
-						if (res.status === 401) throw new Error('Authentication Failed');
+						if (res.status === 401) {
+							if (isLoggedIn()) logout('Session expired. Please log in again.');
+							throw new Error('Authentication Failed');
+						}
 						const err = await res.json().catch(() => ({}));
 						throw new Error(err.error?.message || `Redfish Error: ${res.status}`);
 					}
@@ -531,7 +653,31 @@
 			});
 		}
 
-		// --- Theme & Terminal ---
+		function uploadBinary(path, file, onProgress) {
+			return enqueue(() => new Promise((resolve, reject) => {
+				setLoading(true);
+				const xhr = new XMLHttpRequest();
+				xhr.open('POST', path);
+				xhr.setRequestHeader('authorization', state.auth);
+				xhr.setRequestHeader('x-auth-code', 'webui');
+				xhr.setRequestHeader('content-type', 'application/octet-stream');
+				xhr.upload.onprogress = (e) => {
+					if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+				};
+				xhr.onload = () => {
+					setLoading(false);
+					if (xhr.status >= 200 && xhr.status < 300) resolve();
+					else if (xhr.status === 401) {
+						if (isLoggedIn()) logout('Session expired. Please log in again.');
+						reject(new Error('Authentication Failed'));
+					} else reject(new Error(`Upload failed (status ${xhr.status})`));
+				};
+				xhr.onerror = () => { setLoading(false); reject(new Error('Network error during upload')); };
+				xhr.send(file);
+			}));
+		}
+
+		// --- Theme, Chart & Terminal ---
 		const TERM_THEMES = {
 			dark: {
 				background: '#000000', foreground: '#f8f8f2', cursor: '#f8f8f2',
@@ -549,16 +695,30 @@
 			}
 		};
 
+		function applyChartTheme(dark) {
+			if (typeof Chart === 'undefined') return;
+			const text = dark ? '#9ca3af' : '#6b7280';
+			const grid = dark ? '#374151' : '#e5e7eb';
+			Chart.defaults.color = text;
+			Chart.defaults.borderColor = grid;
+			if (state.chart) {
+				const { x, y } = state.chart.options.scales;
+				x.ticks.color = y.ticks.color = y.title.color = text;
+				x.grid.color = y.grid.color = grid;
+				state.chart.update('none');
+			}
+		}
+
 		function setDarkMode(on) {
 			document.body.classList.toggle('dark', on);
 			localStorage.setItem('dark-mode', on ? '1' : '0');
 			$('cfg-dark').checked = on;
 			if (state.term) state.term.term.options.theme = on ? TERM_THEMES.dark : TERM_THEMES.light;
+			applyChartTheme(on);
 		}
 		setDarkMode(localStorage.getItem('dark-mode') === '1');
 		$('cfg-dark').onchange = (e) => setDarkMode(e.target.checked);
 
-		// Font Detection & Sync
 		(function initTermFonts() {
 			const candidates = [
 				'Andale Mono', 'Cascadia Code', 'Consolas', 'Courier New', 'DejaVu Sans Mono',
@@ -566,8 +726,14 @@
 				'Menlo', 'Monaco', 'Roboto Mono', 'SF Mono', 'Source Code Pro', 'Ubuntu Mono'
 			];
 			const ctx = document.createElement('canvas').getContext('2d');
-			const widths = new Set(['serif', 'sans-serif', 'monospace'].map(f => (ctx.font = `16px ${f}`, ctx.measureText('mmmmmmmmmmlli').width)));
-			const avail = candidates.filter(f => (ctx.font = `16px "${f}"`, !widths.has(ctx.measureText('mmmmmmmmmmlli').width)));
+			const widths = new Set(['serif', 'sans-serif', 'monospace'].map(f => {
+				ctx.font = `16px ${f}`;
+				return ctx.measureText('mmmmmmmmmmlli').width;
+			}));
+			const avail = candidates.filter(f => {
+				ctx.font = `16px "${f}"`;
+				return !widths.has(ctx.measureText('mmmmmmmmmmlli').width);
+			});
 
 			$('term-font').innerHTML = '<option value="monospace">System monospace</option>' +
 				avail.map(f => `<option value="${f}">${f}</option>`).join('');
@@ -579,7 +745,7 @@
 				const size = Math.min(32, Math.max(8, parseInt($('term-size').value, 10) || 14));
 				$('term-size').value = size;
 				localStorage.setItem('term-font-family', family);
-				localStorage.setItem('term-font-size', size);
+				localStorage.setItem('term-font-size', String(size));
 				if (state.term) {
 					state.term.term.options.fontFamily = family;
 					state.term.term.options.fontSize = size;
@@ -591,7 +757,7 @@
 		})();
 
 		class WSConsole {
-			constructor(endpoint, title, prompt = null) {
+			constructor(endpoint, title, prompt = '') {
 				$('term-title').textContent = title;
 				const container = $('term-container');
 				container.innerHTML = '';
@@ -618,7 +784,7 @@
 				this.ws.onopen = () => {
 					opened = true;
 					this.ws.send(state.wsAuth);
-					this.term.write('\x1b[1;32mConnected!\x1b[0m\n' + (prompt || ''));
+					this.term.write('\x1b[1;32mConnected!\x1b[0m\n' + prompt);
 					this.term.loadAddon(new AttachAddon.AttachAddon(this.ws));
 				};
 				this.ws.onclose = (e) => {
@@ -634,6 +800,7 @@
 			}
 			destroy() {
 				this.ro.disconnect();
+				this.ws.onclose = null;
 				this.ws.close();
 				this.term.dispose();
 				$('term-container').innerHTML = '';
@@ -644,6 +811,22 @@
 			if (state.term) { state.term.destroy(); state.term = null; }
 		}
 
+		function openTerm(sec) {
+			closeTerm();
+			const title = sec === 'host-console' ? 'Host Serial Console' : 'BMC Console';
+			if (typeof Terminal === 'undefined' || typeof FitAddon === 'undefined' || typeof AttachAddon === 'undefined') {
+				$('term-title').textContent = title;
+				$('term-container').innerHTML = '<p class="err pad">Terminal library unavailable (offline).</p>';
+				return;
+			}
+			if (sec === 'host-console')
+				state.term = new WSConsole('/console/host', title);
+			else if (sec === 'bmc-console')
+				state.term = new WSConsole('/console/bmc', title, '\x1b[1;32mWelcome to WallaBMC 🦘\x1b[0m\n\x1b[1;32mbmc:~$\x1b[0m ');
+		}
+
+		$('term-reconnect').onclick = () => openTerm(state.activeSec);
+
 		// --- Navigation ---
 		function toggleMenu(open) {
 			$('sidebar').classList.toggle('open', open);
@@ -653,21 +836,20 @@
 		$('overlay').onclick = () => toggleMenu(false);
 
 		function showSection(sec) {
+			state.activeSec = sec;
 			toggleMenu(false);
 			closeTerm();
 			document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.sec === sec));
-			['overview', 'power', 'terminal', 'bmc', 'sensors'].forEach(s =>
-				show(`sec-${s}`, s === sec || (s === 'terminal' && (sec === 'host-console' || sec === 'bmc-shell')))
-			);
-			if (sec === 'host-console') state.term = new WSConsole('/console/host', 'Host Serial Console');
-			if (sec === 'bmc-shell') state.term = new WSConsole('/console/bmc', 'WallaBMC Shell', '\x1b[1;32mWelcome to WallaBMC 🦘\x1b[0m\n\x1b[1;32mbmc:~$\x1b[0m ');
+			const isTerm = sec === 'host-console' || sec === 'bmc-console';
+			SECTIONS.forEach(s => show(`sec-${s}`, s === sec || (s === 'terminal' && isTerm)));
+			if (isTerm) openTerm(sec);
 		}
 		$('sidebar').onclick = (e) => { if (e.target.dataset.sec) showSection(e.target.dataset.sec); };
 
 		// --- Authentication & Discovery ---
 		async function authenticate() {
 			const pass = $('password').value;
-			state.auth = 'Basic ' + btoa(`admin:${pass}`);
+			state.auth = 'Basic ' + toB64(`admin:${pass}`);
 			state.wsAuth = `Auth:admin_${pass}`;
 
 			const root = await api('/redfish/v1');
@@ -679,9 +861,12 @@
 			if (!accSvc.Accounts) throw new Error('No redfish Accounts found.');
 		}
 
-		$('login-form').onsubmit = async (e) => {
+		$('login-form').addEventListener('submit', async (e) => {
 			e.preventDefault();
-			if (!$('password').value) return;
+			const pass = $('password').value;
+			if (!pass) return;
+			const btn = e.submitter;
+			btn.disabled = true;
 			show('login-error', false);
 
 			try {
@@ -726,38 +911,52 @@
 
 				const upd = await api('/redfish/v1/UpdateService').catch(() => null);
 				p.fwPush = typeof upd?.HttpPushUri === 'string' ? upd.HttpPushUri : null;
-				show('fw-section', Boolean(p.fwPush));
+				show('nav-firmware', Boolean(p.fwPush));
 
 				show('nav-sensors', Boolean(p.sensorTemp));
 				if (p.sensorTemp) initChart();
+
+				state.data.netProto = await api(p.netProto);
 
 				show('login-section', false);
 				show('dashboard-section', true);
 
 				await refreshSystem();
-				await refreshConfig();
+				refreshConfig();
+				await refreshCert();
 				if (p.sensorTemp) await refreshSensors();
 			} catch (err) {
 				setText('login-error', err.message);
 				show('login-error', true);
 				state.auth = state.wsAuth = null;
+			} finally {
+				btn.disabled = false;
 			}
-		};
+		});
 
-		function logout() {
+		function logout(errMsg = '') {
 			stopPolling();
 			closeTerm();
 			if (state.chart) { state.chart.destroy(); state.chart = null; }
 			state.auth = state.wsAuth = null;
 			state.paths = {};
+			state.data = {};
 			resetFwUI(true);
-			showSection('overview');
+			['nav-sensors', 'nav-https', 'nav-firmware', 'cert-csr', 'copy-csr-btn'].forEach(id => show(id, false));
+			$('cert-csr').value = $('cert-install').value = '';
+			$('cfg-password').value = $('cfg-password-confirm').value = $('password').value = '';
+			showSection('general');
 			show('dashboard-section', false);
 			show('login-section', true);
-			$('password').value = '';
+			if (typeof errMsg === 'string' && errMsg) {
+				setText('login-error', errMsg);
+				show('login-error', true);
+			} else {
+				show('login-error', false);
+			}
 			$('password').focus();
 		}
-		$('logout-btn').onclick = logout;
+		$('logout-btn').onclick = () => logout();
 
 		// --- Polling & Data Refresh ---
 		function stopPolling() {
@@ -769,7 +968,7 @@
 		function schedule(key, fn, ms) {
 			clearTimeout(state.timers[key]);
 			state.timers[key] = isPollingActive() ? setTimeout(() => {
-				state.polls[key] ??= fn(true).finally(() => state.polls[key] = null);
+				state.polls[key] ??= fn(true).finally(() => { state.polls[key] = null; });
 			}, ms) : null;
 		}
 
@@ -784,27 +983,24 @@
 		async function refreshSystem(isPoll = false) {
 			clearTimeout(state.timers.sys);
 			try {
-				const { sys, mgr, netProto, eth } = state.paths;
+				const { sys, mgr, eth } = state.paths;
 				state.data.sys = await api(sys, 'GET', null, isPoll);
 				state.data.bmc = await api(mgr, 'GET', null, isPoll);
-				state.data.netProto = await api(netProto, 'GET', null, isPoll);
 				if (eth) state.data.eth = await api(eth, 'GET', null, isPoll);
 			} catch (err) {
-				if (!(err instanceof PollStopped)) schedule('sys', refreshSystem, 3000);
+				if (!(err instanceof PollStopped) && isLoggedIn()) schedule('sys', refreshSystem, 3000);
 				return;
 			}
 
 			const { sys, bmc, eth } = state.data;
 			setText('sys-uuid', sys.UUID);
 			updateReadGrid(SYS_FIELDS, sys);
-
-			const pwr = sys.PowerState || 'Unknown';
-			setText('power-badge', pwr);
-			$('power-badge').className = `badge ${pwr.replace(/\s/g, '')}`;
+			setPowerBadge(sys.PowerState);
 
 			setText('bmc-uuid', bmc.UUID);
 			updateReadGrid(BMC_FIELDS, bmc);
-			setText('bmc-time', new Date(bmc.DateTime).toLocaleString(undefined, {
+			const dt = bmc.DateTime ? Date.parse(bmc.DateTime) : NaN;
+			setText('bmc-time', Number.isNaN(dt) ? null : new Date(dt).toLocaleString(undefined, {
 				year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
 			}));
 
@@ -812,13 +1008,11 @@
 			schedule('sys', refreshSystem, 10000);
 		}
 
-		async function refreshConfig() {
-			refreshCert();
+		function refreshConfig() {
 			const { sys, netProto, eth } = state.data;
-			$('cfg-password').value = '';
 			$('cfg-power-policy').value = sys.PowerRestorePolicy;
 
-			if (netProto.NTP) {
+			if (netProto?.NTP) {
 				$('cfg-ntp').value = String(netProto.NTP.ProtocolEnabled);
 				$('cfg-ntp-server').value = netProto.NTP.NTPServers?.[0] || '';
 			}
@@ -832,64 +1026,9 @@
 			}
 		}
 
-		// --- Actions & Settings ---
-		$('cfg-password').oninput = (e) => show('pwd-err', e.target.value.length > 15);
-		$('discard-cfg-btn').onclick = refreshConfig;
-
-		$('save-cfg-btn').onclick = async () => {
-			if (!confirm('Apply settings? Network changes may disrupt connection.')) return;
-			clearTimeout(state.timers.sys);
-			try {
-				const { sys, netProto, eth } = state.data;
-				const policy = $('cfg-power-policy').value;
-				if (policy !== sys.PowerRestorePolicy)
-					await api(state.paths.sys, 'PATCH', { PowerRestorePolicy: policy });
-
-				const ntpPatch = {};
-				const ntpOn = $('cfg-ntp').value === 'true';
-				if (ntpOn !== Boolean(netProto.NTP?.ProtocolEnabled)) ntpPatch.ProtocolEnabled = ntpOn;
-				const ntpSrv = $('cfg-ntp-server').value;
-				if (ntpSrv !== (netProto.NTP?.NTPServers?.[0] || '')) {
-					if (ntpSrv || netProto.NTP?.NTPServers?.length) ntpPatch.NTPServers = [ntpSrv];
-				}
-				if (Object.keys(ntpPatch).length)
-					await api(state.paths.netProto, 'PATCH', { NTP: ntpPatch });
-
-				if (eth) {
-					const ethPatch = {};
-					const host = $('cfg-hostname').value;
-					if (host && host !== eth.HostName) ethPatch.HostName = host;
-
-					const dhcp = $('cfg-dhcp').value === 'true';
-					if (dhcp !== Boolean(eth.DHCPv4?.DHCPEnabled)) ethPatch.DHCPv4 = { DHCPEnabled: dhcp };
-
-					const ip = $('cfg-static-ip').value, mask = $('cfg-static-netmask').value, gw = $('cfg-static-gateway').value;
-					const cur = eth.IPv4StaticAddresses?.[0];
-					if (ip) {
-						if (!cur || ip !== cur.Address || mask !== cur.SubnetMask || gw !== cur.Gateway)
-							ethPatch.IPv4StaticAddresses = [{ Address: ip, SubnetMask: mask, Gateway: gw }];
-					} else if (cur) {
-						ethPatch.IPv4StaticAddresses = [];
-					}
-					if (Object.keys(ethPatch).length) await api(state.paths.eth, 'PATCH', ethPatch);
-				}
-
-				const newPass = $('cfg-password').value;
-				if (newPass) {
-					await api(state.paths.account, 'PATCH', { Password: newPass });
-					$('cfg-password').value = '';
-					$('password').value = newPass;
-					await authenticate();
-				}
-				await refreshSystem();
-				await refreshConfig();
-			} catch (err) {
-				alert('Error saving config: ' + err.message);
-			}
-		};
-
-		$('power-actions').onclick = async (e) => {
-			const resetType = e.target.dataset.pwr;
+		// --- Host Control (Power Actions & Restore Policy) ---
+		bindAction('power-actions', 'click', async (e) => {
+			const resetType = e.target.closest('button')?.dataset.pwr;
 			if (!resetType) return;
 			const knownOff = state.data.sys?.PowerState === 'Off';
 			if (!(resetType === 'On' && knownOff) && !confirm(`Confirm power action: ${resetType}?`)) return;
@@ -898,30 +1037,108 @@
 			try {
 				await api(`${state.paths.sys}/Actions/ComputerSystem.Reset`, 'POST', { ResetType: resetType });
 				if (state.data.sys) state.data.sys.PowerState = null;
+				setPowerBadge(null);
+				toast(`Power action sent: ${resetType}`, 'ok');
 			} catch (err) {
-				alert(err.message.endsWith('503') ? 'Another power operation is in progress; try again shortly.' : `Failed: ${err.message}`);
+				throw new Error(err.message.endsWith('503')
+					? 'Another power operation is in progress; try again shortly.'
+					: `Failed: ${err.message}`);
+			} finally {
+				schedule('sys', refreshSystem, 3000);
 			}
-			schedule('sys', refreshSystem, 3000);
-		};
+		});
 
-		$('reset-bmc-btn').onclick = async () => {
-			if (!confirm('Reset the BMC? The web interface will log out while it reboots.')) return;
+		bindAction('save-policy-btn', 'click', async () => {
+			const policy = $('cfg-power-policy').value;
+			if (policy === state.data.sys?.PowerRestorePolicy) {
+				toast('Power policy unchanged.');
+				return;
+			}
+			clearTimeout(state.timers.sys);
+			await api(state.paths.sys, 'PATCH', { PowerRestorePolicy: policy });
+			await refreshSystem();
+			toast('Power restore policy updated.', 'ok');
+		});
+
+		// --- BMC Restart & Time Sync ---
+		async function restartBmc() {
+			if (!confirm('Restart the BMC? The web interface will log out while it reboots.')) return;
 			stopPolling();
 			await api(`${state.paths.mgr}/Actions/Manager.Reset`, 'POST', { ResetType: 'ForceRestart' }).catch(() => {});
 			logout();
-		};
+		}
+		bindAction('restart-bmc-btn', 'click', restartBmc);
+		bindAction('fw-restart-btn', 'click', restartBmc);
 
-		$('sync-time-btn').onclick = async () => {
+		bindAction('sync-time-btn', 'click', async () => {
 			clearTimeout(state.timers.sys);
-			try {
-				await api(state.paths.mgr, 'PATCH', { DateTime: new Date().toISOString() });
-				schedule('sys', refreshSystem, 3000);
-			} catch (err) {
-				alert(`Failed: ${err.message}`);
-			}
+			await api(state.paths.mgr, 'PATCH', { DateTime: new Date().toISOString() });
+			toast('Time synced to browser.', 'ok');
+			schedule('sys', refreshSystem, 3000);
+		});
+
+		// --- Network (Hostname, IPv4 & NTP) ---
+		$('discard-cfg-btn').onclick = () => {
+			refreshConfig();
+			toast('Changes discarded.');
 		};
 
-		// --- Firmware Upload ---
+		bindAction('network-form', 'submit', async () => {
+			if (!confirm('Apply network settings? Changes may disrupt connection.')) return;
+
+			clearTimeout(state.timers.sys);
+			const { netProto, eth } = state.data;
+			if (eth) {
+				const ethPatch = {};
+				const host = $('cfg-hostname').value;
+				if (host && host !== eth.HostName) ethPatch.HostName = host;
+
+				const dhcp = $('cfg-dhcp').value === 'true';
+				if (dhcp !== Boolean(eth.DHCPv4?.DHCPEnabled)) ethPatch.DHCPv4 = { DHCPEnabled: dhcp };
+
+				const ip = $('cfg-static-ip').value, mask = $('cfg-static-netmask').value, gw = $('cfg-static-gateway').value;
+				const cur = eth.IPv4StaticAddresses?.[0];
+				if (ip) {
+					if (!cur || ip !== cur.Address || mask !== cur.SubnetMask || gw !== cur.Gateway)
+						ethPatch.IPv4StaticAddresses = [{ Address: ip, SubnetMask: mask, Gateway: gw }];
+				} else if (cur) {
+					ethPatch.IPv4StaticAddresses = [];
+				}
+				if (Object.keys(ethPatch).length) await api(state.paths.eth, 'PATCH', ethPatch);
+			}
+
+			const ntpPatch = {};
+			const ntpOn = $('cfg-ntp').value === 'true';
+			if (ntpOn !== Boolean(netProto?.NTP?.ProtocolEnabled)) ntpPatch.ProtocolEnabled = ntpOn;
+			const ntpSrv = $('cfg-ntp-server').value;
+			if (ntpSrv !== (netProto?.NTP?.NTPServers?.[0] || '')) {
+				if (ntpSrv || netProto?.NTP?.NTPServers?.length) ntpPatch.NTPServers = [ntpSrv];
+			}
+			if (Object.keys(ntpPatch).length) {
+				await api(state.paths.netProto, 'PATCH', { NTP: ntpPatch });
+				state.data.netProto = await api(state.paths.netProto);
+			}
+
+			await refreshSystem();
+			refreshConfig();
+			toast('Network settings applied.', 'ok');
+		});
+
+		// --- Change Password ---
+		bindAction('password-form', 'submit', async () => {
+			const newPass = $('cfg-password').value;
+			if (!newPass || newPass.length > 15) throw new Error('Password must be 1–15 characters.');
+			if (newPass !== $('cfg-password-confirm').value) throw new Error('Passwords do not match.');
+			if (!confirm('Change admin password?')) return;
+
+			await api(state.paths.account, 'PATCH', { Password: newPass });
+			$('cfg-password').value = $('cfg-password-confirm').value = '';
+			$('password').value = newPass;
+			await authenticate();
+			toast('Password updated.', 'ok');
+		});
+
+		// --- Firmware Update ---
 		const fmtBytes = (b) => b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(2)} MB`;
 
 		function updateFwUI(file) {
@@ -935,7 +1152,11 @@
 		function resetFwUI(clearMsg = false) {
 			$('fw-file').value = '';
 			updateFwUI(null);
-			if (clearMsg) { $('fw-status').className = ''; $('fw-status').textContent = ''; }
+			if (clearMsg) {
+				$('fw-status').className = 'fw-status';
+				$('fw-status').textContent = '';
+				show('fw-restart-row', false);
+			}
 		}
 
 		$('fw-drop').onclick = (e) => { if (!state.fwUploading && e.target !== $('fw-clear')) $('fw-file').click(); };
@@ -963,14 +1184,19 @@
 
 			state.fwUploading = true;
 			$('fw-btn').disabled = true;
-			$('fw-status').className = '';
-			$('fw-status').textContent = 'Uploading... Please keep this page open.';
+			show('fw-restart-row', false);
+			$('fw-status').className = 'fw-status';
+			$('fw-status').textContent = 'Uploading... 0% — please keep this page open.';
 			try {
-				await api(state.paths.fwPush, 'POST', file);
-				$('fw-status').className = 'ok';
-				$('fw-status').textContent = 'Firmware uploaded. Update will take effect on reboot.';
+				await uploadBinary(state.paths.fwPush, file, (pct) => {
+					$('fw-status').textContent = `Uploading... ${pct}% — please keep this page open.`;
+				});
+				$('fw-status').className = 'fw-status ok';
+				$('fw-status').textContent = 'Firmware uploaded. Restart BMC to apply update.';
+				show('fw-restart-row', true);
+				toast('Firmware uploaded.', 'ok');
 			} catch (err) {
-				$('fw-status').className = 'err';
+				$('fw-status').className = 'fw-status err';
 				$('fw-status').textContent = `Error: ${err.message}`;
 			} finally {
 				state.fwUploading = false;
@@ -978,10 +1204,7 @@
 			}
 		};
 
-		// --- HTTPS Certificates ---
-		const fmtDn = (dn) => dn ? [['CN', dn.CommonName], ['O', dn.Organization], ['OU', dn.OrganizationalUnit], ['L', dn.City], ['ST', dn.State], ['C', dn.Country]]
-			.filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(', ') : '';
-
+		// --- HTTPS Certificate ---
 		async function refreshCert() {
 			const certsObj = state.data.netProto?.HTTPS?.Certificates;
 			if (!state.paths.certSvc || !certsObj) return;
@@ -992,23 +1215,18 @@
 				state.paths.cert = certs.Members[0]['@odata.id'];
 				const cert = await api(state.paths.cert);
 
-				const sub = fmtDn(cert.Subject), iss = fmtDn(cert.Issuer);
-				setText('cert-sub', sub);
-				setText('cert-iss', iss);
-				setText('cert-type', sub === iss ? 'Self-signed' : 'CA-signed');
-				setText('cert-exp', cert.ValidNotAfter.startsWith('9999') ? 'No expiry' :
-					new Date(cert.ValidNotAfter).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }));
+				updateReadGrid(CERT_FIELDS, cert);
 				setText('cert-fp', cert.Fingerprint);
 
 				if (!$('csr-CommonName').value && state.data.eth?.HostName)
 					$('csr-CommonName').value = state.data.eth.HostName;
-				show('cert-card', true);
+				show('nav-https', true);
 			} catch (err) {
 				console.error('Certificate refresh failed', err);
 			}
 		}
 
-		$('gen-csr-btn').onclick = async () => {
+		bindAction('gen-csr-btn', 'click', async () => {
 			const body = {
 				CertificateCollection: state.data.netProto.HTTPS.Certificates,
 				KeyPairAlgorithm: 'TPM_ALG_ECDSA',
@@ -1019,41 +1237,44 @@
 				if (!val) return;
 				body[key] = key === 'AlternativeNames' ? val.split(/[\s,]+/).filter(Boolean) : val;
 			});
+			const target = state.data.certSvc.Actions['#CertificateService.GenerateCSR'].target;
+			const res = await api(target, 'POST', body);
+			$('cert-csr').value = res.CSRString;
+			show('cert-csr', true);
+			show('copy-csr-btn', true);
+			toast('CSR generated.', 'ok');
+		});
+
+		$('copy-csr-btn').onclick = async () => {
 			try {
-				const target = state.data.certSvc.Actions['#CertificateService.GenerateCSR'].target;
-				const res = await api(target, 'POST', body);
-				$('cert-csr').value = res.CSRString;
-				show('cert-csr', true);
-				show('copy-csr-btn', true);
-			} catch (err) {
-				alert('Failed to generate CSR: ' + err.message);
+				await navigator.clipboard.writeText($('cert-csr').value);
+			} catch {
+				$('cert-csr').select();
+				document.execCommand('copy');
 			}
+			toast('CSR copied to clipboard.', 'ok');
 		};
 
-		$('copy-csr-btn').onclick = () => navigator.clipboard.writeText($('cert-csr').value);
-
-		$('install-cert-btn').onclick = async () => {
+		bindAction('install-cert-btn', 'click', async () => {
 			const pem = $('cert-install').value.trim();
-			if (!pem) return alert('Paste a PEM certificate first.');
+			if (!pem) throw new Error('Paste a PEM certificate first.');
 			if (!confirm('Install this certificate? New HTTPS connections will use it.')) return;
-			try {
-				const target = state.data.certSvc.Actions['#CertificateService.ReplaceCertificate'].target;
-				await api(target, 'POST', {
-					CertificateUri: { '@odata.id': state.paths.cert },
-					CertificateType: 'PEM',
-					CertificateString: pem + '\n',
-				});
-				$('cert-install').value = '';
-				await refreshCert();
-				alert('Certificate installed. Reload the page to connect with it.');
-			} catch (err) {
-				alert('Failed to install certificate: ' + err.message);
-			}
-		};
+
+			const target = state.data.certSvc.Actions['#CertificateService.ReplaceCertificate'].target;
+			await api(target, 'POST', {
+				CertificateUri: { '@odata.id': state.paths.cert },
+				CertificateType: 'PEM',
+				CertificateString: pem + '\n',
+			});
+			$('cert-install').value = '';
+			await refreshCert();
+			toast('Certificate installed. Reload the page to connect with it.', 'ok');
+		});
 
 		// --- Sensors Chart ---
 		function initChart() {
-			if (state.chart) return;
+			if (state.chart || typeof Chart === 'undefined') return;
+			applyChartTheme(document.body.classList.contains('dark'));
 			state.chart = new Chart($('tempChart'), {
 				type: 'line',
 				data: {
@@ -1073,14 +1294,23 @@
 					scales: {
 						x: {
 							type: 'linear',
+							grid: { color: Chart.defaults.borderColor },
 							afterBuildTicks: (axis) => {
 								axis.ticks = [];
 								for (let t = Math.ceil(axis.min / 60000) * 60000; t <= axis.max; t += 60000)
 									axis.ticks.push({ value: t });
 							},
-							ticks: { callback: (v) => new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+							ticks: {
+								color: Chart.defaults.color,
+								callback: (v) => new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+							}
 						},
-						y: { title: { display: true, text: 'Celsius' }, suggestedMin: 0, suggestedMax: 60 }
+						y: {
+							grid: { color: Chart.defaults.borderColor },
+							ticks: { color: Chart.defaults.color },
+							title: { display: true, text: 'Celsius', color: Chart.defaults.color },
+							suggestedMin: 0, suggestedMax: 60
+						}
 					}
 				}
 			});
@@ -1088,6 +1318,10 @@
 
 		async function refreshSensors(isPoll = false) {
 			clearTimeout(state.timers.sensor);
+			if (typeof Chart === 'undefined' || !state.chart) {
+				$('sensor-err').textContent = 'Chart library unavailable (offline).';
+				return;
+			}
 			try {
 				const res = await api(state.paths.sensorTemp, 'GET', null, isPoll);
 				if (res.Reading === undefined) throw new Error('Missing Reading');
@@ -1099,7 +1333,7 @@
 				state.chart.update();
 				$('sensor-err').textContent = '';
 			} catch (err) {
-				if (err instanceof PollStopped) return;
+				if (err instanceof PollStopped || !isLoggedIn()) return;
 				$('sensor-err').textContent = `Error fetching data: ${err.message}`;
 			}
 			schedule('sensor', refreshSensors, SENSORS_INTERVAL);
