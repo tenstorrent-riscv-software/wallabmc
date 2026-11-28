@@ -7,7 +7,10 @@
 # MCUboot checks an elliptic curve signature on the application.
 # BOOT_SIGNATURE_TYPE_ED25519 is supported as well. It is quicker to check,
 # but makes MCUboot too big for a 32 KiB boot partition.
+# P550 has tiny amount of flash/sram, can't fit boot signatures, it does
+# not support OTA updates so signatures are less critical.
 choice BOOT_SIGNATURE_TYPE
+	default BOOT_SIGNATURE_TYPE_NONE if BOARD_HIFIVE_PREMIER_P550_MCU
 	default BOOT_SIGNATURE_TYPE_ECDSA_P256
 endchoice
 
@@ -18,5 +21,20 @@ endchoice
 config BOOT_SIGNATURE_KEY_FILE
 	default "$(KCONFIG_BINARY_DIR)/mcuboot-generated-ecdsa-p256.pem" if BOOT_SIGNATURE_TYPE_ECDSA_P256
 	default "$(KCONFIG_BINARY_DIR)/mcuboot-generated-ed25519.pem" if BOOT_SIGNATURE_TYPE_ED25519
+
+config APP_USE_MCUBOOT
+	bool
+	default y if BOARD_XIAO_ESP32C6_ESP32C6_HPCORE
+	default y if BOARD_NUCLEO_F767ZI_STM32F767XX
+	default y if BOARD_NUCLEO_F767ZI_STM32F767XX_ATLANTIS
+
+# In theory using SWAP_SCRATCH mode should allow a confirm step that
+# auto downgrades the update if it does not reach confirm. I have not
+# been able to make this work yet on Nucleo. The swap works, it just
+# seems to be permanent always.
+choice MCUBOOT_MODE
+	default MCUBOOT_MODE_OVERWRITE_ONLY if APP_USE_MCUBOOT
+	default MCUBOOT_MODE_SINGLE_APP
+endchoice
 
 source "$(ZEPHYR_BASE)/share/sysbuild/Kconfig"

@@ -10,17 +10,25 @@ remain free for other uses.
 
 ### Building
 
-The XIAO uses Espressif's built-in Simple Boot rather than MCUboot,
-so the build skips ``--sysbuild``. Plug the XIAO into your build host
-over USB-C — the same USB cable provides power, flashes the firmware,
-and carries the BMC console.
+The XIAO can use Espressif's built-in Simple Boot directly, or MCUboot.
+MCUboot builds permit over-the-air firmware updates of wallabmc. To
+build mcuboot, pass the ``--sysbuild`` argument to the build step. This
+requires mcuboot is flashed as well as wallabmc.
+
+Plug the XIAO into your build host over USB-C — the same USB cable provides
+power, flashes the firmware, and carries the BMC console.
 
 ```
 # One-time: fetch the Espressif Wi-Fi/PHY binary blobs.
 west blobs fetch hal_espressif
 
+# Non-sysbuild...
 cd wallabmc
 west build -p -b xiao_esp32c6/esp32c6/hpcore
+
+# ... or sysbuild
+cd wallabmc
+west build --sysbuild -p -b xiao_esp32c6/esp32c6/hpcore
 ```
 
 ### Flashing
@@ -28,12 +36,19 @@ west build -p -b xiao_esp32c6/esp32c6/hpcore
 west flash
 ```
 
-Alternatively, use the `build/zephyr/zephyr.bin` file and run this
-command:
+Alternatively esptool can be used directly:
 
 ```
-esptool write-flash 0 zephyr.bin
+# Non-sysbuild
+esptool write-flash 0 build/zephyr/zephyr.bin
+
+# Sysbuild
+esptool write-flash 0 build/mcuboot/zephyr/zephyr.bin
+esptool write-flash 0x20000 build/wallabmc/zephyr/zephyr.signed.bin
 ```
+
+xiao also supports online updates via the WallaBMC web interface redfish
+firmware upload.
 
 ### Running
 

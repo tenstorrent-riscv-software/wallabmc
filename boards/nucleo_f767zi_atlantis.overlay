@@ -4,8 +4,11 @@
 
 /*
  * Use the Atlantis flash layout rather than the Nucleo one. Keep this the
- * same as boards/tenstorrent/common/atlantis_wallabmc.dtsi; see
- * boards/nucleo_f767zi_atlantis.md.
+ * same as boards/tenstorrent/common/atlantis_wallabmc.dtsi.
+ *
+ * The internal flash layout happens to match Nucleo at the moment, but define
+ * it here so it can be easily adjusted. slot1 and scratch partitions are not
+ * defined as they are for standard nucleo board since we have less flash.
  */
 /delete-node/ &boot_partition;
 /delete-node/ &storage_partition;
@@ -13,7 +16,7 @@
 
 &flash0 {
     partitions {
-        /* Sectors 0-1 (2*32 kbytes) for mcuboot */
+        /* Sector 0-1 (2*32 kbytes) for mcuboot */
         boot_partition: partition@0 {
             compatible = "zephyr,mapped-partition";
             label = "mcuboot";
@@ -34,6 +37,51 @@
             compatible = "zephyr,mapped-partition";
             label = "image-0";
             reg = <0x00040000 DT_SIZE_K(768)>;
+        };
+    };
+};
+
+/*
+ * Atlantis uses SPI NOR for the image-1 and image-scratch partitions for
+ * over the air wallabmc firmware updates (DFU).
+ */
+&spi1 {
+    status = "okay";
+    pinctrl-0 = <&spi1_sck_pb3 &spi1_miso_pb4 &spi1_mosi_pb5>;
+    pinctrl-names = "default";
+    cs-gpios = <&gpiod 14 GPIO_ACTIVE_LOW>;
+
+    nor_flash: spi-nor-flash@0 {
+        /*
+         * Atlantis board could enforce the flash chip ID if we want to, e.g.,
+         * jedec-id = [ef 40 18];
+         */
+        compatible = "jedec,spi-nor";
+        reg = <0>;
+        spi-max-frequency = <20000000>; /* Start safe at 20 MHz */
+        size = <0x8000000>;             /* Size in BITS (0x8000000 = 128 Mbit = 16 MB) */
+        has-dpd;
+        t-enter-dpd = <3000>;
+        t-exit-dpd = <30000>;
+    };
+};
+
+&nor_flash {
+    partitions {
+        compatible = "fixed-partitions";
+        #address-cells = <1>;
+        #size-cells = <1>;
+
+        /* (12*64kbytes) for the upgrade image */
+        slot1_partition: partition@0 {
+            label = "image-1";
+            reg = <0x00000000 DT_SIZE_K(768)>;
+        };
+
+        /* (4*64kbytes) for the scratch partition */
+        scratch_partition: partition@C0000 {
+            label = "image-scratch";
+            reg = <0xC0000 DT_SIZE_K(256)>;
         };
     };
 };
